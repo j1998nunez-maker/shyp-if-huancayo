@@ -12,6 +12,19 @@ st.set_page_config(page_title="SHYp-IF Dashboard", page_icon="🔥", layout="wid
 
 st.markdown("""
 <style>
+    /* Ocultar barra superior, botón Fork y enlace a GitHub */
+    header { visibility: hidden !important; height: 0px !important; }
+    #MainMenu { visibility: hidden !important; }
+    footer { visibility: hidden !important; }
+    
+    /* Ocultar el botón flotante inferior con tu avatar y nombre de usuario */
+    div[class*="viewerBadge"] { display: none !important; }
+    .viewerBadge_container__1QSob { display: none !important; }
+    div[data-testid="stStatusWidget"] { display: none !important; }
+    div[data-testid="stToolbar"] { display: none !important; }
+    div[data-testid="stDecoration"] { display: none !important; }
+
+    /* Ajuste de fuentes y botones */
     .big-font { font-size: 20px !important; font-weight: 600; color: #E5E7EB; }
     div[data-testid="stMetricValue"] > div { font-size: 28px !important; font-weight: 700; color: #00E5FF; }
     div[data-testid="stMetricLabel"] > label { font-size: 15px !important; font-weight: 600; color: #D1D5DB; }
