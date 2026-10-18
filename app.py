@@ -4,7 +4,7 @@ from flask import Flask, jsonify, request
 
 app = Flask(__name__)
 
-# Configuración táctica de Cuarteles CGBVP y Zonas Forestales de Monitoreo
+# Configuración táctica de Cuarteles CGBVP y Zonas Forestales
 REGIONES_CONFIG = {
     "Huancayo (Junín)": {
         "base_nombre": "Cía. Bomberos Huancayo B-30 (Jr. Loreto 457)",
@@ -59,7 +59,7 @@ def home():
     return jsonify({
         "sistema": "SHYp-IF Backend API",
         "estado": "Operativo",
-        "version": "2.5",
+        "version": "2.6",
         "endpoints": ["/api/riesgo", "/api/guardar_gps", "/api/ruta_optima", "/movil"]
     })
 
@@ -119,7 +119,6 @@ def obtener_riesgo():
     hr = float(hr)
     w = float(w)
 
-    # Algoritmo ICIA
     peso_temp = (t / 35.0) * 35.0
     peso_hum = ((100.0 - hr) / 100.0) * 40.0
     peso_viento = (w / 50.0) * 25.0
@@ -156,13 +155,18 @@ def obtener_riesgo():
 @app.route('/api/ruta_optima', methods=['GET'])
 def calcular_ruta():
     region_nombre = request.args.get('region', 'Huancayo (Junín)')
-    usar_gps = request.args.get('usar_gps', 'false').lower() == 'true'
+    lat_q = request.args.get('lat')
+    lon_q = request.args.get('lon')
     reg = REGIONES_CONFIG.get(region_nombre, REGIONES_CONFIG["Huancayo (Junín)"])
 
-    if usar_gps and ULTIMO_GPS_USUARIO["lat"] is not None:
+    if lat_q and lon_q:
+        origen_lat = float(lat_q)
+        origen_lon = float(lon_q)
+        origen_tipo = "Ubicación en Terreno"
+    elif ULTIMO_GPS_USUARIO["lat"] is not None:
         origen_lat = ULTIMO_GPS_USUARIO["lat"]
         origen_lon = ULTIMO_GPS_USUARIO["lon"]
-        origen_tipo = "GPS en Vivo de Brigadista"
+        origen_tipo = "Ubicación en Terreno"
     else:
         origen_lat = reg["base_lat"]
         origen_lon = reg["base_lon"]
@@ -173,7 +177,7 @@ def calcular_ruta():
 
     url_osrm = f"https://router.project-osrm.org/route/v1/driving/{origen_lon},{origen_lat};{dest_lon},{dest_lat}?overview=full&geometries=geojson"
     try:
-        resp = requests.get(url_osrm, headers={"User-Agent": "SHYp-IF/2.5"}, timeout=6)
+        resp = requests.get(url_osrm, headers={"User-Agent": "SHYp-IF/2.6"}, timeout=6)
         data = resp.json()
         if "routes" in data and len(data["routes"]) > 0:
             ruta = data["routes"][0]
@@ -230,10 +234,11 @@ def vista_movil():
         .metric-item strong { font-size: 15px; color: #48cae4; }
         #map { width: 100%; height: 280px; border-radius: 10px; margin-bottom: 10px; border: 1px solid #3a506b; z-index: 1; }
         .btn { width: 100%; padding: 14px; border: none; border-radius: 8px; font-size: 14px; font-weight: bold; cursor: pointer; margin-bottom: 8px; display: flex; align-items: center; justify-content: center; gap: 6px; }
-        .btn-gps { background-color: #10b981; color: white; }
+        .btn-gps { background-color: #10b981; color: white; transition: background 0.3s; }
         .btn-nav { background-color: #0284c7; color: white; }
         .gps-status { font-size: 11px; text-align: center; color: #a7f3d0; margin-top: -4px; margin-bottom: 8px; }
         .badge-marker { display: flex; align-items: center; justify-content: center; border-radius: 50%; font-size: 16px; box-shadow: 0 0 8px rgba(0,0,0,0.6); }
+        .tip-tocar { font-size: 10px; text-align: center; color: #cbd5e1; margin-bottom: 8px; font-style: italic; }
     </style>
 </head>
 <body>
@@ -273,17 +278,17 @@ def vista_movil():
         </div>
     </div>
 
-    <!-- MAPA TÁCTICO MÓVIL -->
+    <!-- MAPA TÁCTICO -->
     <div id="map"></div>
+    <div class="tip-tocar">💡 ¿Bajo techo? Puedes tocar cualquier punto en el mapa para fijar tu posición manualmente.</div>
 
-    <button class="btn btn-gps" id="btnGps" onclick="obtenerGPS()">🎯 Fijar Mi Posición Satelital GPS</button>
-    <div class="gps-status" id="gpsStatus">🛰️ Sincronizando GPS en segundo plano...</div>
+    <button class="btn btn-gps" id="btnGps" onclick="forzarGPS()">🎯 Activar GPS Satelital</button>
+    <div class="gps-status" id="gpsStatus">🛰️ Iniciando receptor GPS...</div>
 
-    <button class="btn btn-nav" onclick="trazarRutaVial()">🧭 Recalcular Ruta Táctica en Mapa</button>
+    <button class="btn btn-nav" onclick="trazarRutaVial()">🧭 Recalcular Ruta Táctica</button>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script>
-        // Inicializar mapa centrado en Huancayo
         let map = L.map('map', { zoomControl: true }).setView([-12.07015, -75.20895], 13);
         L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', {
             attribution: 'Esri & Contributors',
@@ -347,7 +352,7 @@ def vista_movil():
 
             const orig = posActual ? [posActual.lat, posActual.lon] : baseCoords;
             const iconOrig = posActual ? crearIconoHTML('📍', '#10b981') : crearIconoHTML('🚒', '#0284c7');
-            const origLabel = posActual ? `📍 Mi Ubicación (±${posActual.acc}m)` : `🚒 ${document.getElementById('regionSelect').value.includes('Huancayo') ? 'B-30 Jr. Loreto 457' : 'Cuartel Oficial CGBVP'}`;
+            const origLabel = posActual ? `📍 Mi Ubicación (±${posActual.acc || 15}m)` : `🚒 CGBVP: Jr. Loreto 457`;
 
             const iconDest = crearIconoHTML(infoSector.icono, infoSector.color);
 
@@ -361,58 +366,87 @@ def vista_movil():
         }
 
         function procesarCoordenadas(pos) {
-            const prec = Math.round(pos.coords.accuracy);
-            posActual = { lat: pos.coords.latitude, lon: pos.coords.longitude, acc: prec };
+            const lat = pos.coords.latitude;
+            const lon = pos.coords.longitude;
+            const prec = Math.round(pos.coords.accuracy || 20);
             
-            document.getElementById('gpsStatus').innerText = `✅ GPS Fijado: ${posActual.lat.toFixed(4)}, ${posActual.lon.toFixed(4)} (±${prec}m)`;
+            posActual = { lat: lat, lon: lon, acc: prec };
+            
+            document.getElementById('gpsStatus').innerText = `✅ GPS Satelital Conectado: (±${prec}m)`;
             document.getElementById('btnGps').style.backgroundColor = '#059669';
-            document.getElementById('btnGps').innerText = `📍 Ubicación Fijada (±${prec}m)`;
+            document.getElementById('btnGps').innerText = `📍 Ubicación Satelital Activa (±${prec}m)`;
 
             fetch('/api/guardar_gps', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({lat: posActual.lat, lon: posActual.lon, accuracy: prec})
+                body: JSON.stringify({lat: lat, lon: lon, accuracy: prec})
             });
 
             actualizarMarcadoresEnMapa();
             trazarRutaVial();
         }
 
-        function obtenerGPS() {
+        // Escucha satelital continua
+        function iniciarMonitoreoGPS() {
             if ("geolocation" in navigator) {
-                document.getElementById('gpsStatus').innerText = "🛰️ Conectando satélites GPS...";
-                
-                // Intento 1: Detección rápida por red / antenas (útil en interiores)
-                navigator.geolocation.getCurrentPosition(
-                    (posRapida) => {
-                        procesarCoordenadas(posRapida);
-                        // Intento 2: Refinamiento de alta precisión satelital
-                        navigator.geolocation.getCurrentPosition(
-                            procesarCoordenadas,
-                            null,
-                            { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
-                        );
-                    },
+                navigator.geolocation.watchPosition(
+                    procesarCoordenadas,
                     (err) => {
-                        // Reintento directo si la primera llamada falla
+                        // Respaldo por antena/red si el satélite puro no responde
                         navigator.geolocation.getCurrentPosition(
                             procesarCoordenadas,
-                            (errFinal) => {
-                                document.getElementById('gpsStatus').innerText = "GPS no fijado (Usando Cuartel Oficial CGBVP)";
+                            (err2) => {
+                                document.getElementById('gpsStatus').innerText = "ℹ️ GPS en espera: Toca tu ubicación en el mapa o sal al exterior.";
                             },
-                            { enableHighAccuracy: false, timeout: 10000, maximumAge: 60000 }
+                            { enableHighAccuracy: false, timeout: 10000, maximumAge: 300000 }
                         );
                     },
-                    { enableHighAccuracy: false, timeout: 6000, maximumAge: 60000 }
+                    { enableHighAccuracy: true, timeout: 20000, maximumAge: 10000 }
+                );
+            } else {
+                document.getElementById('gpsStatus').innerText = "Geolocalización no soportada en este dispositivo.";
+            }
+        }
+
+        function forzarGPS() {
+            document.getElementById('gpsStatus').innerText = "🛰️ Conectando satélites de alta precisión...";
+            if ("geolocation" in navigator) {
+                navigator.geolocation.getCurrentPosition(
+                    procesarCoordenadas,
+                    (err) => {
+                        alert("Por favor verifica en los Ajustes de tu teléfono que la app tenga permiso de Ubicación Precisa.");
+                    },
+                    { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
                 );
             }
         }
 
+        // Respaldo táctico: Tocar el mapa para fijar posición
+        map.on('click', function(e) {
+            posActual = { lat: e.latlng.lat, lon: e.latlng.lng, acc: 5 };
+            document.getElementById('gpsStatus').innerText = `📍 Posición fijada manualmente: ${posActual.lat.toFixed(4)}, ${posActual.lon.toFixed(4)}`;
+            document.getElementById('btnGps').style.backgroundColor = '#059669';
+            document.getElementById('btnGps').innerText = "📍 Ubicación en Terreno Fijada";
+            
+            fetch('/api/guardar_gps', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({lat: posActual.lat, lon: posActual.lon, accuracy: 5})
+            });
+
+            actualizarMarcadoresEnMapa();
+            trazarRutaVial();
+        });
+
         async function trazarRutaVial() {
             const reg = document.getElementById('regionSelect').value;
-            const usarGps = posActual !== null;
+            let url = `/api/ruta_optima?region=${encodeURIComponent(reg)}`;
+            if (posActual) {
+                url += `&lat=${posActual.lat}&lon=${posActual.lon}`;
+            }
+
             try {
-                const res = await fetch(`/api/ruta_optima?region=${encodeURIComponent(reg)}&usar_gps=${usarGps}`);
+                const res = await fetch(url);
                 const data = await res.json();
                 if (data.status === "success" && data.coordenadas) {
                     if (rutaLayer) map.removeLayer(rutaLayer);
@@ -423,9 +457,8 @@ def vista_movil():
             } catch(e) {}
         }
 
-        // Ejecución al iniciar: Carga clima de la región y dispara lectura automática de GPS
         cambiarRegion();
-        obtenerGPS();
+        iniciarMonitoreoGPS();
     </script>
 </body>
 </html>"""
