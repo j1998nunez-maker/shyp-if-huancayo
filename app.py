@@ -4,12 +4,12 @@ from flask import Flask, jsonify, request
 
 app = Flask(__name__)
 
-# Configuración táctica de Cuarteles CGBVP y Zonas Forestales
+# Configuración táctica de Cuarteles CGBVP y Zonas Forestales de Monitoreo
 REGIONES_CONFIG = {
     "Huancayo (Junín)": {
-        "base_nombre": "Cía. Bomberos Huancayo B-30 (Jr. Áncash 603)",
-        "base_lat": -12.06915,
-        "base_lon": -75.20985,
+        "base_nombre": "Cía. Bomberos Huancayo B-30 (Jr. Loreto 457)",
+        "base_lat": -12.07015,
+        "base_lon": -75.20895,
         "bosque_nombre": "Bosque Acopalca - Quebrada Shullcas",
         "bosque_lat": -11.9960,
         "bosque_lon": -75.1380
@@ -59,7 +59,7 @@ def home():
     return jsonify({
         "sistema": "SHYp-IF Backend API",
         "estado": "Operativo",
-        "version": "2.4",
+        "version": "2.5",
         "endpoints": ["/api/riesgo", "/api/guardar_gps", "/api/ruta_optima", "/movil"]
     })
 
@@ -162,7 +162,7 @@ def calcular_ruta():
     if usar_gps and ULTIMO_GPS_USUARIO["lat"] is not None:
         origen_lat = ULTIMO_GPS_USUARIO["lat"]
         origen_lon = ULTIMO_GPS_USUARIO["lon"]
-        origen_tipo = "GPS de Brigadista"
+        origen_tipo = "GPS en Vivo de Brigadista"
     else:
         origen_lat = reg["base_lat"]
         origen_lon = reg["base_lon"]
@@ -173,7 +173,7 @@ def calcular_ruta():
 
     url_osrm = f"https://router.project-osrm.org/route/v1/driving/{origen_lon},{origen_lat};{dest_lon},{dest_lat}?overview=full&geometries=geojson"
     try:
-        resp = requests.get(url_osrm, headers={"User-Agent": "SHYp-IF/2.0"}, timeout=6)
+        resp = requests.get(url_osrm, headers={"User-Agent": "SHYp-IF/2.5"}, timeout=6)
         data = resp.json()
         if "routes" in data and len(data["routes"]) > 0:
             ruta = data["routes"][0]
@@ -201,6 +201,9 @@ def calcular_ruta():
         "coordenadas": [[origen_lon, origen_lat], [dest_lon, dest_lat]]
     })
 
+# ==========================================
+# VISTA MÓVIL TÁCTICA AUTÓNOMA
+# ==========================================
 @app.route('/movil')
 def vista_movil():
     return """<!DOCTYPE html>
@@ -213,7 +216,7 @@ def vista_movil():
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
         body { background-color: #0b132b; color: #ffffff; padding: 12px; display: flex; flex-direction: column; min-height: 100vh; }
-        .header { text-align: center; margin-bottom: 12px; }
+        .header { text-align: center; margin-bottom: 10px; }
         .header h1 { font-size: 20px; color: #ff5722; font-weight: 800; }
         .header p { font-size: 11px; color: #94a3b8; }
         .card { background-color: #1c2541; border-radius: 10px; padding: 10px; margin-bottom: 10px; border: 1px solid #3a506b; }
@@ -273,14 +276,15 @@ def vista_movil():
     <!-- MAPA TÁCTICO MÓVIL -->
     <div id="map"></div>
 
-    <button class="btn btn-gps" onclick="obtenerGPS()">🎯 Fijar Mi Posición Satelital GPS</button>
-    <div class="gps-status" id="gpsStatus">GPS: No fijado (Origen: Cuartel Oficial CGBVP)</div>
+    <button class="btn btn-gps" id="btnGps" onclick="obtenerGPS()">🎯 Fijar Mi Posición Satelital GPS</button>
+    <div class="gps-status" id="gpsStatus">🛰️ Sincronizando GPS en segundo plano...</div>
 
-    <button class="btn btn-nav" onclick="trazarRutaVial()">🧭 Trazar Ruta Óptima en Mapa</button>
+    <button class="btn btn-nav" onclick="trazarRutaVial()">🧭 Recalcular Ruta Táctica en Mapa</button>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script>
-        let map = L.map('map', { zoomControl: true }).setView([-12.06915, -75.20985], 11);
+        // Inicializar mapa centrado en Huancayo
+        let map = L.map('map', { zoomControl: true }).setView([-12.07015, -75.20895], 13);
         L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', {
             attribution: 'Esri & Contributors',
             maxZoom: 18
@@ -292,9 +296,9 @@ def vista_movil():
         let markerDestino = null;
         let rutaLayer = null;
         let posActual = null;
-        let baseCoords = [-12.06915, -75.20985];
+        let baseCoords = [-12.07015, -75.20895]; // Jr. Loreto 457
         let bosqueCoords = [-11.9960, -75.1380];
-        let infoSector = { sector: "Bosque", riesgo: 0, alerta: "Seguro", semaforo: "verde", icono: "🌲" };
+        let infoSector = { sector: "Bosque", riesgo: 0, alerta: "Seguro", color: "#10b981", icono: "🌲" };
 
         function crearIconoHTML(emoji, colorFondo) {
             return L.divIcon({
@@ -343,12 +347,11 @@ def vista_movil():
 
             const orig = posActual ? [posActual.lat, posActual.lon] : baseCoords;
             const iconOrig = posActual ? crearIconoHTML('📍', '#10b981') : crearIconoHTML('🚒', '#0284c7');
-            const origLabel = posActual ? "📍 Mi Posición GPS" : "🚒 Cuartel CGBVP";
+            const origLabel = posActual ? `📍 Mi Ubicación (±${posActual.acc}m)` : `🚒 ${document.getElementById('regionSelect').value.includes('Huancayo') ? 'B-30 Jr. Loreto 457' : 'Cuartel Oficial CGBVP'}`;
 
-            // Ícono del destino dinámico según el rango de riesgo
             const iconDest = crearIconoHTML(infoSector.icono, infoSector.color);
 
-            markerOrigen = L.marker(orig, { icon: iconOrig }).addTo(map).bindPopup(origLabel);
+            markerOrigen = L.marker(orig, { icon: iconOrig }).addTo(map).bindPopup(origLabel).openPopup();
             markerDestino = L.marker(bosqueCoords, { icon: iconDest }).addTo(map).bindPopup(
                 `<b>${infoSector.sector}</b><br>Riesgo: ${infoSector.riesgo}% (${infoSector.alerta})`
             );
@@ -358,10 +361,13 @@ def vista_movil():
         }
 
         function procesarCoordenadas(pos) {
-            posActual = { lat: pos.coords.latitude, lon: pos.coords.longitude };
             const prec = Math.round(pos.coords.accuracy);
-            document.getElementById('gpsStatus').innerText = `GPS Satelital Activo (±${prec}m)`;
+            posActual = { lat: pos.coords.latitude, lon: pos.coords.longitude, acc: prec };
             
+            document.getElementById('gpsStatus').innerText = `✅ GPS Fijado: ${posActual.lat.toFixed(4)}, ${posActual.lon.toFixed(4)} (±${prec}m)`;
+            document.getElementById('btnGps').style.backgroundColor = '#059669';
+            document.getElementById('btnGps').innerText = `📍 Ubicación Fijada (±${prec}m)`;
+
             fetch('/api/guardar_gps', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
@@ -374,19 +380,30 @@ def vista_movil():
 
         function obtenerGPS() {
             if ("geolocation" in navigator) {
-                document.getElementById('gpsStatus').innerText = "Triangulando satélites...";
+                document.getElementById('gpsStatus').innerText = "🛰️ Conectando satélites GPS...";
+                
+                // Intento 1: Detección rápida por red / antenas (útil en interiores)
                 navigator.geolocation.getCurrentPosition(
-                    procesarCoordenadas,
-                    (err) => {
+                    (posRapida) => {
+                        procesarCoordenadas(posRapida);
+                        // Intento 2: Refinamiento de alta precisión satelital
                         navigator.geolocation.getCurrentPosition(
                             procesarCoordenadas,
-                            (err2) => {
-                                document.getElementById('gpsStatus').innerText = "GPS no fijado (Usando Cuartel Oficial CGBVP)";
-                            },
-                            { enableHighAccuracy: false, timeout: 8000, maximumAge: 60000 }
+                            null,
+                            { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
                         );
                     },
-                    { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
+                    (err) => {
+                        // Reintento directo si la primera llamada falla
+                        navigator.geolocation.getCurrentPosition(
+                            procesarCoordenadas,
+                            (errFinal) => {
+                                document.getElementById('gpsStatus').innerText = "GPS no fijado (Usando Cuartel Oficial CGBVP)";
+                            },
+                            { enableHighAccuracy: false, timeout: 10000, maximumAge: 60000 }
+                        );
+                    },
+                    { enableHighAccuracy: false, timeout: 6000, maximumAge: 60000 }
                 );
             }
         }
@@ -406,7 +423,9 @@ def vista_movil():
             } catch(e) {}
         }
 
+        // Ejecución al iniciar: Carga clima de la región y dispara lectura automática de GPS
         cambiarRegion();
+        obtenerGPS();
     </script>
 </body>
 </html>"""
