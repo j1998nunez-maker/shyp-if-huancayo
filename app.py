@@ -10,7 +10,6 @@ REGIONES_CONFIG = {
         "base_nombre": "Cía. Bomberos Huancayo B-30 (Jr. Áncash 603)",
         "base_lat": -12.06915,
         "base_lon": -75.20985,
-        "dir_maps": "Compañia+de+Bomberos+Huancayo+30,+Jiron+Ancash+603,+Huancayo",
         "bosque_nombre": "Bosque Acopalca - Quebrada Shullcas",
         "bosque_lat": -11.9960,
         "bosque_lon": -75.1380
@@ -19,7 +18,6 @@ REGIONES_CONFIG = {
         "base_nombre": "Cía. Bomberos Cusco B-39 (Av. Garcilaso 313)",
         "base_lat": -13.52055,
         "base_lon": -71.97235,
-        "dir_maps": "Compañia+de+Bomberos+Cusco+39,+Avenida+Garcilaso+313,+Cusco",
         "bosque_nombre": "Alto Tambomachay",
         "bosque_lat": -13.4750,
         "bosque_lon": -71.9680
@@ -28,7 +26,6 @@ REGIONES_CONFIG = {
         "base_nombre": "Cía. Bomberos Puno B-42 (Av. El Sol 829)",
         "base_lat": -15.83685,
         "base_lon": -70.02295,
-        "dir_maps": "Compañia+de+Bomberos+Puno+42,+Avenida+El+Sol+829,+Puno",
         "bosque_nombre": "Pajonales Cerros Yanamayo",
         "bosque_lat": -15.8120,
         "bosque_lon": -70.0450
@@ -37,7 +34,6 @@ REGIONES_CONFIG = {
         "base_nombre": "Cía. Bomberos Abancay B-68 (Av. Seoane)",
         "base_lat": -13.63585,
         "base_lon": -72.87815,
-        "dir_maps": "Compañia+de+Bomberos+Abancay+68,+Avenida+Seoane,+Abancay",
         "bosque_nombre": "Santuario Nal. Ampay - Bosque Intimpa",
         "bosque_lat": -13.5950,
         "bosque_lon": -72.8780
@@ -46,14 +42,12 @@ REGIONES_CONFIG = {
         "base_nombre": "Cía. Bomberos Huaraz B-84",
         "base_lat": -9.52985,
         "base_lon": -77.52875,
-        "dir_maps": "Compañia+de+Bomberos+Huaraz+84,+Huaraz",
         "bosque_nombre": "Pajonales Quebrada Llaca - Huascarán",
         "bosque_lat": -9.4780,
         "bosque_lon": -77.4950
     }
 }
 
-# Almacenamiento volátil de la posición del usuario
 ULTIMO_GPS_USUARIO = {
     "lat": None,
     "lon": None,
@@ -65,7 +59,7 @@ def home():
     return jsonify({
         "sistema": "SHYp-IF Backend API",
         "estado": "Operativo",
-        "version": "2.0",
+        "version": "2.1",
         "endpoints": ["/api/riesgo", "/api/guardar_gps", "/api/ruta_optima", "/movil"]
     })
 
@@ -83,7 +77,7 @@ def guardar_gps():
         ULTIMO_GPS_USUARIO["accuracy"] = float(acc)
         return jsonify({"status": "success", "gps": ULTIMO_GPS_USUARIO}), 200
 
-    return jsonify({"status": "error", "mensaje": "Coordenadas no validas"}), 400
+    return jsonify({"status": "error", "mensaje": "Coordenadas no válidas"}), 400
 
 @app.route('/api/riesgo', methods=['GET'])
 def obtener_riesgo():
@@ -93,12 +87,11 @@ def obtener_riesgo():
     lat = reg["bosque_lat"]
     lon = reg["bosque_lon"]
 
-    # Consulta meteorológica dinámica con User-Agent verificado
     url_meteo = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current=temperature_2m,relative_humidity_2m,wind_speed_10m&timezone=auto"
     
     t, hr, w = 18.0, 48.0, 12.0
     try:
-        headers = {'User-Agent': 'SHYp-IF-App-Tactica/2.0'}
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
         r = requests.get(url_meteo, headers=headers, timeout=6)
         if r.status_code == 200:
             clima = r.json().get('current', {})
@@ -108,7 +101,6 @@ def obtener_riesgo():
     except Exception:
         pass
 
-    # Cálculo del Índice ICIA
     peso_temp = (t / 35.0) * 35.0
     peso_hum = ((100.0 - hr) / 100.0) * 40.0
     peso_viento = (w / 50.0) * 25.0
@@ -152,10 +144,10 @@ def calcular_ruta():
     dest_lat = reg["bosque_lat"]
     dest_lon = reg["bosque_lon"]
 
-    # Consulta OSRM vial táctica
     url_osrm = f"https://router.project-osrm.org/route/v1/driving/{origen_lon},{origen_lat};{dest_lon},{dest_lat}?overview=full&geometries=geojson"
     try:
-        resp = requests.get(url_osrm, timeout=8)
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+        resp = requests.get(url_osrm, headers=headers, timeout=8)
         data = resp.json()
         if "routes" in data and len(data["routes"]) > 0:
             ruta = data["routes"][0]
@@ -175,9 +167,6 @@ def calcular_ruta():
 
     return jsonify({"status": "error", "mensaje": "No se pudo calcular la ruta vial"}), 500
 
-# ==========================================
-# VISTA MÓVIL TÁCTICA AUTÓNOMA (CON MAPA LEAFLET)
-# ==========================================
 @app.route('/movil')
 def vista_movil():
     return """<!DOCTYPE html>
@@ -202,7 +191,7 @@ def vista_movil():
         .metric-item { background: #1c2541; padding: 8px 4px; border-radius: 8px; text-align: center; width: 31%; border: 1px solid #3a506b; }
         .metric-item span { font-size: 9px; color: #94a3b8; display: block; margin-bottom: 2px; }
         .metric-item strong { font-size: 15px; color: #48cae4; }
-        #map { width: 100%; height: 260px; border-radius: 10px; margin-bottom: 10px; border: 1px solid #3a506b; z-index: 1; }
+        #map { width: 100%; height: 280px; border-radius: 10px; margin-bottom: 10px; border: 1px solid #3a506b; z-index: 1; }
         .btn { width: 100%; padding: 14px; border: none; border-radius: 8px; font-size: 14px; font-weight: bold; cursor: pointer; margin-bottom: 8px; display: flex; align-items: center; justify-content: center; gap: 6px; }
         .btn-gps { background-color: #10b981; color: white; }
         .btn-nav { background-color: #0284c7; color: white; }
@@ -246,7 +235,7 @@ def vista_movil():
         </div>
     </div>
 
-    <!-- MAPA TÁCTICO DIRECTO -->
+    <!-- MAPA TÁCTICO MÓVIL SIN BLOQUEOS -->
     <div id="map"></div>
 
     <button class="btn btn-gps" onclick="obtenerGPS()">🎯 Fijar Mi Posición Satelital GPS</button>
@@ -256,10 +245,15 @@ def vista_movil():
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script>
-        let map = L.map('map').setView([-12.06915, -75.20985], 11);
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            attribution: '© OpenStreetMap'
+        // Inicializar Leaflet con capa CartoDB Voyager de alta velocidad y sin bloqueo 403
+        let map = L.map('map', { zoomControl: true }).setView([-12.06915, -75.20985], 11);
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+            attribution: '© CARTO © OpenStreetMap',
+            maxZoom: 19,
+            subdomains: 'abcd'
         }).addTo(map);
+
+        setTimeout(() => { map.invalidateSize(); }, 400);
 
         let markerOrigen = null;
         let markerDestino = null;
@@ -300,7 +294,7 @@ def vista_movil():
             const orig = posActual ? [posActual.lat, posActual.lon] : baseCoords;
             const origLabel = posActual ? "📍 Mi Posición GPS" : "🚒 Cuartel Oficial CGBVP";
 
-            markerOrigen = L.marker(orig).addTo(map).bindPopup(origLabel).openPopup();
+            markerOrigen = L.marker(orig).addTo(map).bindPopup(origLabel);
             markerDestino = L.marker(bosqueCoords).addTo(map).bindPopup("🔥 Zona Forestal Objetivo");
 
             const bounds = L.latLngBounds([orig, bosqueCoords]);
@@ -325,7 +319,7 @@ def vista_movil():
                         actualizarMarcadoresEnMapa();
                     },
                     (err) => {
-                        alert('Activa la ubicación / GPS en tu teléfono.');
+                        alert('Activa los permisos de ubicación satelital en el celular.');
                         document.getElementById('gpsStatus').innerText = "GPS no disponible. Usando Cuartel Oficial.";
                     },
                     { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 }
@@ -342,7 +336,7 @@ def vista_movil():
                 if (data.status === "success" && data.coordenadas) {
                     if (rutaLayer) map.removeLayer(rutaLayer);
                     const latlngs = data.coordenadas.map(c => [c[1], c[0]]);
-                    rutaLayer = L.polyline(latlngs, { color: '#00f5d4', weight: 5 }).addTo(map);
+                    rutaLayer = L.polyline(latlngs, { color: '#0284c7', weight: 6, opacity: 0.9 }).addTo(map);
                     map.fitBounds(rutaLayer.getBounds(), { padding: [25, 25] });
                 }
             } catch(e) {
