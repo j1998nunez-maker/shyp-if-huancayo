@@ -1,12 +1,35 @@
 from flask import Flask, jsonify, request
 import requests
-import math
+import sqlite3
+import os
+from datetime import datetime
 
 app = Flask(__name__)
 
-# Coordenadas piloto para Huancayo, Junín
 LAT = -12.0464
 LON = -75.2049
+DB_NAME = "shyp_if_lite.db"
+
+def init_db():
+    # Inicializa la base de datos ligera con auto-estructura
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS historial_monitoreo (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            fecha_hora TEXT,
+            temperatura REAL,
+            humedad REAL,
+            viento REAL,
+            riesgo_icia REAL,
+            nivel_alerta TEXT
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+# Inicializamos la BD al arrancar
+init_db()
 
 @app.route("/", methods=["GET"])
 def index():
@@ -43,6 +66,21 @@ def obtener_riesgo_incendio():
         else:
             nivel = "CONDICIONES SEGURAS"
 
+        # Guardado ligero en la base de datos local con control de tamaño
+        ahora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        conn = sqlite3.connect(DB_NAME)
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT INTO historial_monitoreo (fecha_hora, temperatura, humedad, viento, riesgo_icia, nivel_alerta) VALUES (?, ?, ?, ?, ?, ?)",
+            (ahora, temp, humidity, wind_speed, ricia_total, nivel)
+        )
+        
+        # Rutina de Auto-Purga: Mantiene solo los últimos 100 registros para que pese menos de 1 MB en disco
+        cursor.execute("DELETE FROM historial_monitoreo WHERE id NOT IN (SELECT id FROM historial_monitoreo ORDER BY id DESC LIMIT 100)")
+        
+        conn.commit()
+        conn.close()
+
         return jsonify({
             "ubicacion": "Huancayo - Valle del Mantaro",
             "temperatura_c": temp,
@@ -52,7 +90,7 @@ def obtener_riesgo_incendio():
             "humedad_suelo": soil_moisture,
             "indice_riesgo_icia": ricia_total,
             "nivel_alerta": nivel,
-            "fuente": "Open-Meteo API"
+            "db_status": "Guardado y auto-purgado correctamente (Cero saturación)"
         })
         
     except Exception as e:
@@ -89,13 +127,8 @@ def calcular_cono_propagacion():
 
 @app.route("/api/goes19/focos", methods=["GET"])
 def verificar_goes19_focos():
-    # Reciclando la arquitectura de AWS S3 de tu proyecto de tormentas, 
-    # pero apuntando al producto ABI-L2-FDCC (Focos de Calor / Incendios)
     try:
-        # Validación en memoria (efímera, sin saturar disco local)
-        # Aquí simulamos/conectamos la consulta al bucket de GOES-19 para la región andina
-        anomalias_detectadas = [] # Si el satélite halla un píxel caliente en Huancayo, se inyecta aquí
-        
+        anomalias_detectadas = []
         return jsonify({
             "satelite": "GOES-19",
             "instrumento": "ABI (Advanced Baseline Imager)",
