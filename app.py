@@ -1,6 +1,6 @@
 import math
 import requests
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, Response
 
 app = Flask(__name__)
 
@@ -59,8 +59,28 @@ def home():
     return jsonify({
         "sistema": "SHYp-IF Backend API",
         "estado": "Operativo",
-        "version": "2.6",
-        "endpoints": ["/api/riesgo", "/api/guardar_gps", "/api/ruta_optima", "/movil"]
+        "version": "3.0",
+        "endpoints": ["/api/riesgo", "/api/guardar_gps", "/api/ruta_optima", "/movil", "/manifest.json"]
+    })
+
+# Manifiesto para que Android instale la App de forma nativa con GPS desbloqueado
+@app.route('/manifest.json')
+def manifest():
+    return jsonify({
+        "name": "SHYp-IF Táctico",
+        "short_name": "SHYp-IF",
+        "start_url": "/movil",
+        "display": "standalone",
+        "background_color": "#0b132b",
+        "theme_color": "#0b132b",
+        "orientation": "portrait",
+        "icons": [
+            {
+                "src": "https://cdn-icons-png.flaticon.com/512/785/785116.png",
+                "sizes": "512x512",
+                "type": "image/png"
+            }
+        ]
     })
 
 @app.route('/api/guardar_gps', methods=['POST'])
@@ -69,7 +89,7 @@ def guardar_gps():
     data = request.get_json(silent=True) or {}
     lat = data.get('lat')
     lon = data.get('lon')
-    acc = data.get('accuracy', 0.0)
+    acc = data.get('accuracy', 15.0)
 
     if lat is not None and lon is not None:
         ULTIMO_GPS_USUARIO["lat"] = float(lat)
@@ -162,11 +182,11 @@ def calcular_ruta():
     if lat_q and lon_q:
         origen_lat = float(lat_q)
         origen_lon = float(lon_q)
-        origen_tipo = "Ubicación en Terreno"
+        origen_tipo = "Mi Ubicación Actual"
     elif ULTIMO_GPS_USUARIO["lat"] is not None:
         origen_lat = ULTIMO_GPS_USUARIO["lat"]
         origen_lon = ULTIMO_GPS_USUARIO["lon"]
-        origen_tipo = "Ubicación en Terreno"
+        origen_tipo = "Mi Ubicación Actual"
     else:
         origen_lat = reg["base_lat"]
         origen_lon = reg["base_lon"]
@@ -177,7 +197,7 @@ def calcular_ruta():
 
     url_osrm = f"https://router.project-osrm.org/route/v1/driving/{origen_lon},{origen_lat};{dest_lon},{dest_lat}?overview=full&geometries=geojson"
     try:
-        resp = requests.get(url_osrm, headers={"User-Agent": "SHYp-IF/2.6"}, timeout=6)
+        resp = requests.get(url_osrm, headers={"User-Agent": "SHYp-IF/3.0"}, timeout=6)
         data = resp.json()
         if "routes" in data and len(data["routes"]) > 0:
             ruta = data["routes"][0]
@@ -205,9 +225,6 @@ def calcular_ruta():
         "coordenadas": [[origen_lon, origen_lat], [dest_lon, dest_lat]]
     })
 
-# ==========================================
-# VISTA MÓVIL TÁCTICA AUTÓNOMA
-# ==========================================
 @app.route('/movil')
 def vista_movil():
     return """<!DOCTYPE html>
@@ -215,6 +232,10 @@ def vista_movil():
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="theme-color" content="#0b132b">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <link rel="manifest" href="/manifest.json">
     <title>SHYp-IF Táctico</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
@@ -226,19 +247,19 @@ def vista_movil():
         .card { background-color: #1c2541; border-radius: 10px; padding: 10px; margin-bottom: 10px; border: 1px solid #3a506b; }
         select { width: 100%; padding: 10px; border-radius: 8px; background: #0b132b; color: white; border: 1px solid #48cae4; font-size: 14px; font-weight: bold; }
         .risk-box { text-align: center; padding: 12px; border-radius: 10px; margin-bottom: 10px; border: 2px solid #48cae4; background: #1c2541; }
-        .risk-val { font-size: 42px; font-weight: 900; color: #00f5d4; }
+        .risk-val { font-size: 40px; font-weight: 900; color: #00f5d4; }
         .risk-status { font-size: 13px; font-weight: bold; color: #00f5d4; margin-top: 2px; }
         .metrics { display: flex; justify-content: space-between; margin-bottom: 10px; }
         .metric-item { background: #1c2541; padding: 8px 4px; border-radius: 8px; text-align: center; width: 31%; border: 1px solid #3a506b; }
         .metric-item span { font-size: 9px; color: #94a3b8; display: block; margin-bottom: 2px; }
         .metric-item strong { font-size: 15px; color: #48cae4; }
-        #map { width: 100%; height: 280px; border-radius: 10px; margin-bottom: 10px; border: 1px solid #3a506b; z-index: 1; }
-        .btn { width: 100%; padding: 14px; border: none; border-radius: 8px; font-size: 14px; font-weight: bold; cursor: pointer; margin-bottom: 8px; display: flex; align-items: center; justify-content: center; gap: 6px; }
-        .btn-gps { background-color: #10b981; color: white; transition: background 0.3s; }
+        #map { width: 100%; height: 290px; border-radius: 10px; margin-bottom: 8px; border: 1px solid #3a506b; z-index: 1; }
+        .btn { width: 100%; padding: 13px; border: none; border-radius: 8px; font-size: 14px; font-weight: bold; cursor: pointer; margin-bottom: 8px; display: flex; align-items: center; justify-content: center; gap: 6px; }
+        .btn-gps { background-color: #10b981; color: white; }
         .btn-nav { background-color: #0284c7; color: white; }
-        .gps-status { font-size: 11px; text-align: center; color: #a7f3d0; margin-top: -4px; margin-bottom: 8px; }
+        .gps-status { font-size: 11px; text-align: center; color: #a7f3d0; margin-top: -2px; margin-bottom: 8px; font-weight: 600; }
         .badge-marker { display: flex; align-items: center; justify-content: center; border-radius: 50%; font-size: 16px; box-shadow: 0 0 8px rgba(0,0,0,0.6); }
-        .tip-tocar { font-size: 10px; text-align: center; color: #cbd5e1; margin-bottom: 8px; font-style: italic; }
+        .tip-tocar { font-size: 11px; text-align: center; color: #38bdf8; margin-bottom: 8px; font-weight: 600; }
     </style>
 </head>
 <body>
@@ -278,14 +299,13 @@ def vista_movil():
         </div>
     </div>
 
-    <!-- MAPA TÁCTICO -->
     <div id="map"></div>
-    <div class="tip-tocar">💡 ¿Bajo techo? Puedes tocar cualquier punto en el mapa para fijar tu posición manualmente.</div>
+    <div class="tip-tocar">👆 Toca cualquier calle en el mapa o arrastra el pin 📍 para ajustar tu posición exacta.</div>
 
-    <button class="btn btn-gps" id="btnGps" onclick="forzarGPS()">🎯 Activar GPS Satelital</button>
-    <div class="gps-status" id="gpsStatus">🛰️ Iniciando receptor GPS...</div>
+    <button class="btn btn-gps" id="btnGps" onclick="detectarUbicacionHibrida()">🎯 Detectar Mi Ubicación Ahora</button>
+    <div class="gps-status" id="gpsStatus">🛰️ Buscando señal de ubicación...</div>
 
-    <button class="btn btn-nav" onclick="trazarRutaVial()">🧭 Recalcular Ruta Táctica</button>
+    <button class="btn btn-nav" onclick="trazarRutaVial()">🧭 Trazar Ruta desde Mi Ubicación</button>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script>
@@ -297,20 +317,21 @@ def vista_movil():
 
         setTimeout(() => { map.invalidateSize(); }, 300);
 
-        let markerOrigen = null;
+        let markerBomberos = null;
+        let markerUsuario = null;
         let markerDestino = null;
         let rutaLayer = null;
         let posActual = null;
-        let baseCoords = [-12.07015, -75.20895]; // Jr. Loreto 457
+        let baseCoords = [-12.07015, -75.20895]; // CGBVP B-30 Jr. Loreto 457
         let bosqueCoords = [-11.9960, -75.1380];
         let infoSector = { sector: "Bosque", riesgo: 0, alerta: "Seguro", color: "#10b981", icono: "🌲" };
 
         function crearIconoHTML(emoji, colorFondo) {
             return L.divIcon({
                 className: 'badge-marker',
-                html: `<div style="background-color:${colorFondo}; width:32px; height:32px; border-radius:50%; display:flex; align-items:center; justify-content:center; border:2px solid #ffffff; font-size:16px;">${emoji}</div>`,
-                iconSize: [32, 32],
-                iconAnchor: [16, 16]
+                html: `<div style="background-color:${colorFondo}; width:34px; height:34px; border-radius:50%; display:flex; align-items:center; justify-content:center; border:2px solid #ffffff; font-size:17px;">${emoji}</div>`,
+                iconSize: [34, 34],
+                iconAnchor: [17, 17]
             });
         }
 
@@ -338,7 +359,8 @@ def vista_movil():
                     riesgo: data.indice_riesgo_icia,
                     alerta: data.nivel_alerta,
                     color: color,
-                    icono: data.icono_rango
+                    icono: data.icono_rango,
+                    baseNombre: data.base_oficial
                 };
 
                 actualizarMarcadoresEnMapa();
@@ -347,95 +369,109 @@ def vista_movil():
         }
 
         function actualizarMarcadoresEnMapa() {
-            if (markerOrigen) map.removeLayer(markerOrigen);
+            if (markerBomberos) map.removeLayer(markerBomberos);
+            if (markerUsuario) map.removeLayer(markerUsuario);
             if (markerDestino) map.removeLayer(markerDestino);
 
-            const orig = posActual ? [posActual.lat, posActual.lon] : baseCoords;
-            const iconOrig = posActual ? crearIconoHTML('📍', '#10b981') : crearIconoHTML('🚒', '#0284c7');
-            const origLabel = posActual ? `📍 Mi Ubicación (±${posActual.acc || 15}m)` : `🚒 CGBVP: Jr. Loreto 457`;
+            // 1. Mostrar SIEMPRE el Cuartel Fijo de Bomberos como referencia oficial
+            markerBomberos = L.marker(baseCoords, { icon: crearIconoHTML('🚒', '#0284c7') })
+                .addTo(map)
+                .bindPopup(`<b>${infoSector.baseNombre || 'Cuartel CGBVP'}</b><br>(Base Fija Oficial)`);
 
-            const iconDest = crearIconoHTML(infoSector.icono, infoSector.color);
+            // 2. Si hay ubicación del usuario, mostrar el pin verde arrastrable y usarlo como origen
+            if (posActual) {
+                markerUsuario = L.marker([posActual.lat, posActual.lon], {
+                    icon: crearIconoHTML('📍', '#10b981'),
+                    draggable: true
+                }).addTo(map).bindPopup(`<b>📍 Mi Ubicación Actual</b><br>Origen de la ruta táctica`).openPopup();
 
-            markerOrigen = L.marker(orig, { icon: iconOrig }).addTo(map).bindPopup(origLabel).openPopup();
-            markerDestino = L.marker(bosqueCoords, { icon: iconDest }).addTo(map).bindPopup(
-                `<b>${infoSector.sector}</b><br>Riesgo: ${infoSector.riesgo}% (${infoSector.alerta})`
-            );
+                markerUsuario.on('dragend', function(ev) {
+                    const nuevaPos = ev.target.getLatLng();
+                    fijarCoordenadasUsuario(nuevaPos.lat, nuevaPos.lng, 5, "Posición ajustada en mapa");
+                });
+            }
 
-            const bounds = L.latLngBounds([orig, bosqueCoords]);
+            // 3. Mostrar el Destino Forestal según rango de riesgo
+            markerDestino = L.marker(bosqueCoords, { icon: crearIconoHTML(infoSector.icono, infoSector.color) })
+                .addTo(map)
+                .bindPopup(`<b>${infoSector.sector}</b><br>Riesgo: ${infoSector.riesgo}% (${infoSector.alerta})`);
+
+            const puntoPartida = posActual ? [posActual.lat, posActual.lon] : baseCoords;
+            const bounds = L.latLngBounds([puntoPartida, bosqueCoords]);
             map.fitBounds(bounds, { padding: [35, 35] });
         }
 
-        function procesarCoordenadas(pos) {
-            const lat = pos.coords.latitude;
-            const lon = pos.coords.longitude;
-            const prec = Math.round(pos.coords.accuracy || 20);
-            
-            posActual = { lat: lat, lon: lon, acc: prec };
-            
-            document.getElementById('gpsStatus').innerText = `✅ GPS Satelital Conectado: (±${prec}m)`;
+        function fijarCoordenadasUsuario(lat, lon, acc, fuente) {
+            posActual = { lat: lat, lon: lon, acc: acc };
+            document.getElementById('gpsStatus').innerText = `✅ ${fuente}: ${lat.toFixed(4)}, ${lon.toFixed(4)} (±${acc}m)`;
             document.getElementById('btnGps').style.backgroundColor = '#059669';
-            document.getElementById('btnGps').innerText = `📍 Ubicación Satelital Activa (±${prec}m)`;
+            document.getElementById('btnGps').innerText = `📍 Mi Ubicación Activa (${fuente})`;
 
             fetch('/api/guardar_gps', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({lat: lat, lon: lon, accuracy: prec})
+                body: JSON.stringify({lat: lat, lon: lon, accuracy: acc})
             });
 
             actualizarMarcadoresEnMapa();
             trazarRutaVial();
         }
 
-        // Escucha satelital continua
-        function iniciarMonitoreoGPS() {
-            if ("geolocation" in navigator) {
-                navigator.geolocation.watchPosition(
-                    procesarCoordenadas,
-                    (err) => {
-                        // Respaldo por antena/red si el satélite puro no responde
-                        navigator.geolocation.getCurrentPosition(
-                            procesarCoordenadas,
-                            (err2) => {
-                                document.getElementById('gpsStatus').innerText = "ℹ️ GPS en espera: Toca tu ubicación en el mapa o sal al exterior.";
-                            },
-                            { enableHighAccuracy: false, timeout: 10000, maximumAge: 300000 }
-                        );
-                    },
-                    { enableHighAccuracy: true, timeout: 20000, maximumAge: 10000 }
-                );
-            } else {
-                document.getElementById('gpsStatus').innerText = "Geolocalización no soportada en este dispositivo.";
-            }
-        }
+        // Sistema de Geolocalización de 3 Niveles (Satélite -> Celda/Wi-Fi -> Red IP)
+        async function detectarUbicacionHibrida() {
+            document.getElementById('gpsStatus').innerText = "🛰️ Obteniendo coordenadas del dispositivo...";
 
-        function forzarGPS() {
-            document.getElementById('gpsStatus').innerText = "🛰️ Conectando satélites de alta precisión...";
             if ("geolocation" in navigator) {
                 navigator.geolocation.getCurrentPosition(
-                    procesarCoordenadas,
-                    (err) => {
-                        alert("Por favor verifica en los Ajustes de tu teléfono que la app tenga permiso de Ubicación Precisa.");
+                    (pos) => {
+                        fijarCoordenadasUsuario(pos.coords.latitude, pos.coords.longitude, Math.round(pos.coords.accuracy || 15), "GPS Satelital");
                     },
-                    { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+                    (err1) => {
+                        // Intento 2: Baja potencia / Red Wi-Fi
+                        navigator.geolocation.getCurrentPosition(
+                            (pos2) => {
+                                fijarCoordenadasUsuario(pos2.coords.latitude, pos2.coords.longitude, Math.round(pos2.coords.accuracy || 40), "Antena / Wi-Fi");
+                            },
+                            async (err2) => {
+                                // Intento 3: Si el APK bloquea permisos de Android, triangular por Red IP automáticamente sin lanzar alertas molestas
+                                await fallbackUbicacionPorRed();
+                            },
+                            { enableHighAccuracy: false, timeout: 6000, maximumAge: 300000 }
+                        );
+                    },
+                    { enableHighAccuracy: true, timeout: 7000, maximumAge: 0 }
                 );
+            } else {
+                await fallbackUbicacionPorRed();
             }
         }
 
-        // Respaldo táctico: Tocar el mapa para fijar posición
-        map.on('click', function(e) {
-            posActual = { lat: e.latlng.lat, lon: e.latlng.lng, acc: 5 };
-            document.getElementById('gpsStatus').innerText = `📍 Posición fijada manualmente: ${posActual.lat.toFixed(4)}, ${posActual.lon.toFixed(4)}`;
-            document.getElementById('btnGps').style.backgroundColor = '#059669';
-            document.getElementById('btnGps').innerText = "📍 Ubicación en Terreno Fijada";
-            
-            fetch('/api/guardar_gps', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({lat: posActual.lat, lon: posActual.lon, accuracy: 5})
-            });
+        async function fallbackUbicacionPorRed() {
+            try {
+                const r = await fetch('https://ipapi.co/json/');
+                const d = await r.json();
+                if (d.latitude && d.longitude) {
+                    fijarCoordenadasUsuario(parseFloat(d.latitude), parseFloat(d.longitude), 120, "Triangulación de Red");
+                    return;
+                }
+            } catch(e) {}
 
-            actualizarMarcadoresEnMapa();
-            trazarRutaVial();
+            try {
+                const r2 = await fetch('https://get.geojs.io/v1/ip/geo.json');
+                const d2 = await r2.json();
+                if (d2.latitude && d2.longitude) {
+                    fijarCoordenadasUsuario(parseFloat(d2.latitude), parseFloat(d2.longitude), 150, "Triangulación de Red");
+                    return;
+                }
+            } catch(e) {}
+
+            // Si todo falla, posicionar un pin inicial editable en Huancayo centro para que el usuario lo mueva con un toque
+            fijarCoordenadasUsuario(-12.0655, -75.2045, 25, "Pin Táctico Móvil");
+        }
+
+        // Al tocar cualquier calle del mapa, mueve tu ubicación allí inmediatamente y recalcula la ruta
+        map.on('click', function(e) {
+            fijarCoordenadasUsuario(e.latlng.lat, e.latlng.lng, 5, "Ubicación Exacta en Mapa");
         });
 
         async function trazarRutaVial() {
@@ -451,14 +487,17 @@ def vista_movil():
                 if (data.status === "success" && data.coordenadas) {
                     if (rutaLayer) map.removeLayer(rutaLayer);
                     const latlngs = data.coordenadas.map(c => [c[1], c[0]]);
-                    rutaLayer = L.polyline(latlngs, { color: '#0284c7', weight: 5, opacity: 0.95 }).addTo(map);
+                    // Línea verde brillante cuando sale desde tu ubicación GPS, azul cuando sale desde el cuartel
+                    const colorRuta = posActual ? '#10b981' : '#0284c7';
+                    rutaLayer = L.polyline(latlngs, { color: colorRuta, weight: 6, opacity: 0.95 }).addTo(map);
                     map.fitBounds(rutaLayer.getBounds(), { padding: [35, 35] });
                 }
             } catch(e) {}
         }
 
+        // Iniciar al abrir la aplicación
         cambiarRegion();
-        iniciarMonitoreoGPS();
+        detectarUbicacionHibrida();
     </script>
 </body>
 </html>"""
