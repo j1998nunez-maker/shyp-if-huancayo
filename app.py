@@ -196,3 +196,142 @@ def verificar_goes19():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=True)
+    @app.route('/movil')
+def vista_movil():
+    html_content = """
+    <!DOCTYPE html>
+    <html lang="es">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+        <title>SHYp-IF Táctico</title>
+        <style>
+            * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+            body { background-color: #0b132b; color: #ffffff; padding: 16px; display: flex; flex-direction: column; min-height: 100vh; }
+            .header { text-align: center; margin-bottom: 20px; }
+            .header h1 { font-size: 24px; color: #ff5722; font-weight: 800; }
+            .header p { font-size: 13px; color: #94a3b8; }
+            .card { background-color: #1c2541; border-radius: 12px; padding: 16px; margin-bottom: 16px; border: 1px solid #3a506b; }
+            label { font-size: 12px; text-transform: uppercase; color: #94a3b8; font-weight: bold; margin-bottom: 6px; display: block; }
+            select { width: 100%; padding: 12px; border-radius: 8px; background: #0b132b; color: white; border: 1px solid #48cae4; font-size: 16px; }
+            .risk-box { text-align: center; padding: 20px; border-radius: 12px; margin-bottom: 16px; border: 2px solid #48cae4; background: #1c2541; }
+            .risk-val { font-size: 48px; font-weight: 900; color: #00f5d4; }
+            .risk-status { font-size: 16px; font-weight: bold; color: #00f5d4; margin-top: 4px; }
+            .metrics { display: flex; justify-content: space-between; margin-bottom: 16px; }
+            .metric-item { background: #1c2541; padding: 12px; border-radius: 8px; text-align: center; width: 31%; border: 1px solid #3a506b; }
+            .metric-item span { font-size: 11px; color: #94a3b8; display: block; }
+            .metric-item strong { font-size: 16px; color: #48cae4; }
+            .btn { width: 100%; padding: 16px; border: none; border-radius: 10px; font-size: 16px; font-weight: bold; cursor: pointer; margin-bottom: 12px; display: flex; align-items: center; justify-content: center; gap: 8px; text-decoration: none; }
+            .btn-gps { background-color: #10b981; color: white; }
+            .btn-nav { background-color: #0284c7; color: white; }
+            .gps-status { font-size: 12px; text-align: center; color: #a7f3d0; margin-top: -6px; margin-bottom: 12px; }
+        </style>
+    </head>
+    <body>
+        <div class="header">
+            <h1>🔥 SHYp-IF Táctico</h1>
+            <p>Monitoreo y Ruteo de Incendios Forestales</p>
+        </div>
+
+        <div class="card">
+            <label>Seleccionar Región:</label>
+            <select id="regionSelect" onchange="actualizarRegion()">
+                <option value="Huancayo (Junín)">Huancayo (Bosque Acopalca)</option>
+                <option value="Cusco">Cusco (Alto Tambomachay)</option>
+                <option value="Puno">Puno (Pajonales Yanamayo)</option>
+                <option value="Abancay (Apurímac)">Abancay (Bosque Intimpa)</option>
+                <option value="Huaraz (Áncash)">Huaraz (Quebrada Llaca)</option>
+            </select>
+        </div>
+
+        <div class="risk-box" id="riskBox">
+            <div style="font-size: 13px; color: #94a3b8;" id="sectorName">Bosque Acopalca - Quebrada Shullcas</div>
+            <div class="risk-val" id="riskVal">--%</div>
+            <div class="risk-status" id="riskStatus">Consultando...</div>
+        </div>
+
+        <div class="metrics">
+            <div class="metric-item">
+                <span>TEMP.</span>
+                <strong id="tempVal">-- °C</strong>
+            </div>
+            <div class="metric-item">
+                <span>HUMEDAD</span>
+                <strong id="humVal">-- %</strong>
+            </div>
+            <div class="metric-item">
+                <span>VIENTO</span>
+                <strong id="vientoVal">-- km/h</strong>
+            </div>
+        </div>
+
+        <button class="btn btn-gps" onclick="obtenerGPS()">🎯 Mi Ubicación GPS en Vivo</button>
+        <div class="gps-status" id="gpsStatus">GPS: No fijado (Se usará Cuartel Oficial)</div>
+
+        <button class="btn btn-nav" onclick="abrirNavegacion()">🧭 Trazar Ruta Táctica</button>
+
+        <script>
+            let posActual = null;
+            const regionesData = {
+                "Huancayo (Junín)": { destLat: -11.9960, destLon: -75.1380, sector: "Bosque Acopalca - Quebrada Shullcas", base: "Compañia+de+Bomberos+Huancayo+30,+Jiron+Ancash+603,+Huancayo" },
+                "Cusco": { destLat: -13.4750, destLon: -71.9680, sector: "Alto Tambomachay", base: "Compañia+de+Bomberos+Cusco+39,+Avenida+Garcilaso+313,+Cusco" },
+                "Puno": { destLat: -15.8120, destLon: -70.0450, sector: "Pajonales Cerros Yanamayo", base: "Compañia+de+Bomberos+Puno+42,+Avenida+El+Sol+829,+Puno" },
+                "Abancay (Apurímac)": { destLat: -13.5950, destLon: -72.8780, sector: "Bosque Intimpa - Ampay", base: "Compañia+de+Bomberos+Abancay+68,+Avenida+Seoane,+Abancay" },
+                "Huaraz (Áncash)": { destLat: -9.4780, destLon: -77.4950, sector: "Pajonal Quebrada Llaca", base: "Compañia+de+Bomberos+Huaraz+84,+Huaraz" }
+            };
+
+            async function actualizarRegion() {
+                const reg = document.getElementById('regionSelect').value;
+                document.getElementById('sectorName').innerText = regionesData[reg].sector;
+                try {
+                    const res = await fetch('/api/riesgo?region=' + encodeURIComponent(reg));
+                    const data = await res.json();
+                    document.getElementById('riskVal').innerText = data.indice_riesgo_icia + '%';
+                    document.getElementById('riskStatus').innerText = data.nivel_alerta;
+                    document.getElementById('tempVal').innerText = data.temperatura_c + ' °C';
+                    document.getElementById('humVal').innerText = data.humedad_relativa_pct + ' %';
+                    document.getElementById('vientoVal').innerText = data.velocidad_viento_kmh + ' km/h';
+
+                    const color = data.indice_riesgo_icia >= 70 ? '#ef4444' : (data.indice_riesgo_icia >= 40 ? '#f59e0b' : '#10b981');
+                    document.getElementById('riskVal').style.color = color;
+                    document.getElementById('riskStatus').style.color = color;
+                    document.getElementById('riskBox').style.borderColor = color;
+                } catch(e) {}
+            }
+
+            function obtenerGPS() {
+                if (navigator.geolocation) {
+                    navigator.geolocation.getCurrentPosition(
+                        (pos) => {
+                            posActual = { lat: pos.coords.latitude, lon: pos.coords.longitude };
+                            document.getElementById('gpsStatus').innerText = `GPS Fijado: ${pos.coords.latitude.toFixed(4)}, ${pos.coords.longitude.toFixed(4)} (±${Math.round(pos.coords.accuracy)}m)`;
+                            fetch('/api/guardar_gps', {
+                                method: 'POST',
+                                headers: {'Content-Type': 'application/json'},
+                                body: JSON.stringify({lat: pos.coords.latitude, lon: pos.coords.longitude, accuracy: pos.coords.accuracy})
+                            });
+                        },
+                        (err) => { alert('No se pudo acceder al GPS: ' + err.message); },
+                        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+                    );
+                }
+            }
+
+            function abrirNavegacion() {
+                const reg = document.getElementById('regionSelect').value;
+                const data = regionesData[reg];
+                let url = '';
+                if (posActual) {
+                    url = `https://www.google.com/maps/dir/${posActual.lat},${posActual.lon}/${data.destLat},${data.destLon}`;
+                } else {
+                    url = `https://www.google.com/maps/dir/${data.base}/${data.destLat},${data.destLon}`;
+                }
+                window.open(url, '_blank');
+            }
+
+            actualizarRegion();
+        </script>
+    </body>
+    </html>
+    """
+    return html_content
