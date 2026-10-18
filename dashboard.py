@@ -6,7 +6,7 @@ import pydeck as pdk
 import streamlit.components.v1 as components
 
 # Si existe variable de entorno usa la nube, si no, usa localhost
-BACKEND_URL = os.getenv("BACKEND_URL", "http://127.0.0.1:5000")
+BACKEND_URL = "https://shyp-if-huancayo.onrender.com"
 
 st.set_page_config(page_title="SHYp-IF Dashboard", page_icon="🔥", layout="wide")
 
@@ -23,7 +23,7 @@ st.title("🔥 SHYp-IF: Sistema Híbrido Predictivo de Incendios Forestales")
 st.markdown("<p class='big-font'>Bases Oficiales CGBVP Fijas + Geolocalización Automática en Tiempo Real hacia Zonas Forestales</p>", unsafe_allow_html=True)
 st.markdown("---")
 
-BACKEND_URL = "http://127.0.0.1:5000"
+BACKEND_URL = "https://shyp-if-huancayo.onrender.com"
 
 # Cuarteles Oficiales del Cuerpo General de Bomberos Voluntarios del Perú (Fijos y Verificados)
 REGIONES_PERU = {
