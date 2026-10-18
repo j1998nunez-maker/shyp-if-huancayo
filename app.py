@@ -59,7 +59,7 @@ def home():
     return jsonify({
         "sistema": "SHYp-IF Backend API",
         "estado": "Operativo",
-        "version": "2.1",
+        "version": "2.2",
         "endpoints": ["/api/riesgo", "/api/guardar_gps", "/api/ruta_optima", "/movil"]
     })
 
@@ -245,15 +245,14 @@ def vista_movil():
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script>
-        // Inicializar Leaflet con capa CartoDB Voyager de alta velocidad y sin bloqueo 403
+        // Mapa base ArcGIS Esri: 100% libre, sin API key, sin marcas de agua y de alto rendimiento
         let map = L.map('map', { zoomControl: true }).setView([-12.06915, -75.20985], 11);
-        L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-            attribution: '© CARTO © OpenStreetMap',
-            maxZoom: 19,
-            subdomains: 'abcd'
+        L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', {
+            attribution: 'Esri & Contributors',
+            maxZoom: 18
         }).addTo(map);
 
-        setTimeout(() => { map.invalidateSize(); }, 400);
+        setTimeout(() => { map.invalidateSize(); }, 300);
 
         let markerOrigen = null;
         let markerDestino = null;
@@ -301,28 +300,37 @@ def vista_movil():
             map.fitBounds(bounds, { padding: [25, 25] });
         }
 
+        function procesarCoordenadas(pos) {
+            posActual = { lat: pos.coords.latitude, lon: pos.coords.longitude };
+            const prec = Math.round(pos.coords.accuracy);
+            document.getElementById('gpsStatus').innerText = `GPS Activo: (±${prec}m de precisión)`;
+            
+            fetch('/api/guardar_gps', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({lat: posActual.lat, lon: posActual.lon, accuracy: prec})
+            });
+
+            actualizarMarcadoresEnMapa();
+        }
+
         function obtenerGPS() {
             if ("geolocation" in navigator) {
-                document.getElementById('gpsStatus').innerText = "Triangulando satélites GPS...";
+                document.getElementById('gpsStatus').innerText = "Conectando con satélites GPS...";
                 navigator.geolocation.getCurrentPosition(
-                    (pos) => {
-                        posActual = { lat: pos.coords.latitude, lon: pos.coords.longitude };
-                        const prec = Math.round(pos.coords.accuracy);
-                        document.getElementById('gpsStatus').innerText = `GPS Activo: (±${prec}m de precisión)`;
-                        
-                        fetch('/api/guardar_gps', {
-                            method: 'POST',
-                            headers: {'Content-Type': 'application/json'},
-                            body: JSON.stringify({lat: posActual.lat, lon: posActual.lon, accuracy: prec})
-                        });
-
-                        actualizarMarcadoresEnMapa();
-                    },
+                    procesarCoordenadas,
                     (err) => {
-                        alert('Activa los permisos de ubicación satelital en el celular.');
-                        document.getElementById('gpsStatus').innerText = "GPS no disponible. Usando Cuartel Oficial.";
+                        // Intento secundario con menor exigencia satelital (triangulación por red/celda)
+                        navigator.geolocation.getCurrentPosition(
+                            procesarCoordenadas,
+                            (errFinal) => {
+                                alert("Para usar tu ubicación en vivo, ve a: Ajustes del Teléfono > Aplicaciones > SHYp-iF > Permisos > Ubicación > 'Permitir siempre o con la app en uso'.");
+                                document.getElementById('gpsStatus').innerText = "GPS no disponible. Usando Cuartel Oficial.";
+                            },
+                            { enableHighAccuracy: false, timeout: 15000, maximumAge: 60000 }
+                        );
                     },
-                    { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 }
+                    { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
                 );
             }
         }
@@ -336,7 +344,7 @@ def vista_movil():
                 if (data.status === "success" && data.coordenadas) {
                     if (rutaLayer) map.removeLayer(rutaLayer);
                     const latlngs = data.coordenadas.map(c => [c[1], c[0]]);
-                    rutaLayer = L.polyline(latlngs, { color: '#0284c7', weight: 6, opacity: 0.9 }).addTo(map);
+                    rutaLayer = L.polyline(latlngs, { color: '#0284c7', weight: 6, opacity: 0.95 }).addTo(map);
                     map.fitBounds(rutaLayer.getBounds(), { padding: [25, 25] });
                 }
             } catch(e) {
