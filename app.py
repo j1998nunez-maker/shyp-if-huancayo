@@ -59,7 +59,7 @@ def home():
     return jsonify({
         "sistema": "SHYp-IF Backend API",
         "estado": "Operativo",
-        "version": "2.3",
+        "version": "2.4",
         "endpoints": ["/api/riesgo", "/api/guardar_gps", "/api/ruta_optima", "/movil"]
     })
 
@@ -87,7 +87,6 @@ def obtener_riesgo():
     lat = reg["bosque_lat"]
     lon = reg["bosque_lon"]
 
-    # Consulta meteorológica robusta y directa a Open-Meteo
     url_meteo = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current=temperature_2m,relative_humidity_2m,wind_speed_10m"
     
     t, hr, w = None, None, None
@@ -106,7 +105,6 @@ def obtener_riesgo():
     except Exception:
         pass
 
-    # Si la API externa fallara temporalmente, calibración climática diferenciada por altitud andina
     if t is None or hr is None or w is None:
         offsets = {
             "Huancayo (Junín)": (14.2, 55.0, 16.5),
@@ -121,7 +119,7 @@ def obtener_riesgo():
     hr = float(hr)
     w = float(w)
 
-    # Cálculo del Índice ICIA
+    # Algoritmo ICIA
     peso_temp = (t / 35.0) * 35.0
     peso_hum = ((100.0 - hr) / 100.0) * 40.0
     peso_viento = (w / 50.0) * 25.0
@@ -129,10 +127,16 @@ def obtener_riesgo():
 
     if icia >= 70.0:
         alerta = "ALTO RIESGO / EXTREMO"
+        semaforo = "rojo"
+        icono = "🔥"
     elif icia >= 40.0:
         alerta = "RIESGO MODERADO"
+        semaforo = "ambar"
+        icono = "⚠️"
     else:
         alerta = "CONDICIÓN SEGURA"
+        semaforo = "verde"
+        icono = "🌲"
 
     return jsonify({
         "region": region_nombre,
@@ -142,6 +146,8 @@ def obtener_riesgo():
         "velocidad_viento_kmh": round(w, 1),
         "indice_riesgo_icia": icia,
         "nivel_alerta": alerta,
+        "semaforo": semaforo,
+        "icono_rango": icono,
         "base_oficial": reg["base_nombre"],
         "base_coords": [reg["base_lat"], reg["base_lon"]],
         "bosque_coords": [reg["bosque_lat"], reg["bosque_lon"]]
@@ -165,7 +171,6 @@ def calcular_ruta():
     dest_lat = reg["bosque_lat"]
     dest_lon = reg["bosque_lon"]
 
-    # Consulta OSRM vial
     url_osrm = f"https://router.project-osrm.org/route/v1/driving/{origen_lon},{origen_lat};{dest_lon},{dest_lat}?overview=full&geometries=geojson"
     try:
         resp = requests.get(url_osrm, headers={"User-Agent": "SHYp-IF/2.0"}, timeout=6)
@@ -186,7 +191,6 @@ def calcular_ruta():
     except Exception:
         pass
 
-    # Si OSRM no encuentra carretera continua hasta la ladera, devolver vector táctico directo
     dist_aprox = round(math.sqrt((dest_lat - origen_lat)**2 + (dest_lon - origen_lon)**2) * 111.0, 2)
     return jsonify({
         "status": "success",
@@ -197,9 +201,6 @@ def calcular_ruta():
         "coordenadas": [[origen_lon, origen_lat], [dest_lon, dest_lat]]
     })
 
-# ==========================================
-# VISTA MÓVIL TÁCTICA AUTÓNOMA
-# ==========================================
 @app.route('/movil')
 def vista_movil():
     return """<!DOCTYPE html>
@@ -229,7 +230,7 @@ def vista_movil():
         .btn-gps { background-color: #10b981; color: white; }
         .btn-nav { background-color: #0284c7; color: white; }
         .gps-status { font-size: 11px; text-align: center; color: #a7f3d0; margin-top: -4px; margin-bottom: 8px; }
-        .badge-marker { display: flex; align-items: center; justify-content: center; border-radius: 50%; font-size: 16px; box-shadow: 0 0 6px rgba(0,0,0,0.5); }
+        .badge-marker { display: flex; align-items: center; justify-content: center; border-radius: 50%; font-size: 16px; box-shadow: 0 0 8px rgba(0,0,0,0.6); }
     </style>
 </head>
 <body>
@@ -269,7 +270,7 @@ def vista_movil():
         </div>
     </div>
 
-    <!-- MAPA TÁCTICO -->
+    <!-- MAPA TÁCTICO MÓVIL -->
     <div id="map"></div>
 
     <button class="btn btn-gps" onclick="obtenerGPS()">🎯 Fijar Mi Posición Satelital GPS</button>
@@ -279,7 +280,6 @@ def vista_movil():
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script>
-        // Capa Esri World Street Map (Libre de claves)
         let map = L.map('map', { zoomControl: true }).setView([-12.06915, -75.20985], 11);
         L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', {
             attribution: 'Esri & Contributors',
@@ -288,34 +288,22 @@ def vista_movil():
 
         setTimeout(() => { map.invalidateSize(); }, 300);
 
-        // Marcadores personalizados diferenciados
-        const iconBomberos = L.divIcon({
-            className: 'badge-marker',
-            html: '<div style="background-color:#0284c7; width:30px; height:30px; border-radius:50%; display:flex; align-items:center; justify-content:center; border:2px solid #ffffff;">🚒</div>',
-            iconSize: [30, 30],
-            iconAnchor: [15, 15]
-        });
-
-        const iconGPS = L.divIcon({
-            className: 'badge-marker',
-            html: '<div style="background-color:#10b981; width:30px; height:30px; border-radius:50%; display:flex; align-items:center; justify-content:center; border:2px solid #ffffff;">📍</div>',
-            iconSize: [30, 30],
-            iconAnchor: [15, 15]
-        });
-
-        const iconBosque = L.divIcon({
-            className: 'badge-marker',
-            html: '<div style="background-color:#ef4444; width:30px; height:30px; border-radius:50%; display:flex; align-items:center; justify-content:center; border:2px solid #ffffff;">🔥</div>',
-            iconSize: [30, 30],
-            iconAnchor: [15, 15]
-        });
-
         let markerOrigen = null;
         let markerDestino = null;
         let rutaLayer = null;
         let posActual = null;
         let baseCoords = [-12.06915, -75.20985];
         let bosqueCoords = [-11.9960, -75.1380];
+        let infoSector = { sector: "Bosque", riesgo: 0, alerta: "Seguro", semaforo: "verde", icono: "🌲" };
+
+        function crearIconoHTML(emoji, colorFondo) {
+            return L.divIcon({
+                className: 'badge-marker',
+                html: `<div style="background-color:${colorFondo}; width:32px; height:32px; border-radius:50%; display:flex; align-items:center; justify-content:center; border:2px solid #ffffff; font-size:16px;">${emoji}</div>`,
+                iconSize: [32, 32],
+                iconAnchor: [16, 16]
+            });
+        }
 
         async function cambiarRegion() {
             const reg = document.getElementById('regionSelect').value;
@@ -336,6 +324,13 @@ def vista_movil():
 
                 baseCoords = data.base_coords;
                 bosqueCoords = data.bosque_coords;
+                infoSector = {
+                    sector: data.sector,
+                    riesgo: data.indice_riesgo_icia,
+                    alerta: data.nivel_alerta,
+                    color: color,
+                    icono: data.icono_rango
+                };
 
                 actualizarMarcadoresEnMapa();
                 trazarRutaVial();
@@ -347,11 +342,16 @@ def vista_movil():
             if (markerDestino) map.removeLayer(markerDestino);
 
             const orig = posActual ? [posActual.lat, posActual.lon] : baseCoords;
-            const iconoUsado = posActual ? iconGPS : iconBomberos;
+            const iconOrig = posActual ? crearIconoHTML('📍', '#10b981') : crearIconoHTML('🚒', '#0284c7');
             const origLabel = posActual ? "📍 Mi Posición GPS" : "🚒 Cuartel CGBVP";
 
-            markerOrigen = L.marker(orig, { icon: iconoUsado }).addTo(map).bindPopup(origLabel);
-            markerDestino = L.marker(bosqueCoords, { icon: iconBosque }).addTo(map).bindPopup("🔥 Zona Forestal Objetivo");
+            // Ícono del destino dinámico según el rango de riesgo
+            const iconDest = crearIconoHTML(infoSector.icono, infoSector.color);
+
+            markerOrigen = L.marker(orig, { icon: iconOrig }).addTo(map).bindPopup(origLabel);
+            markerDestino = L.marker(bosqueCoords, { icon: iconDest }).addTo(map).bindPopup(
+                `<b>${infoSector.sector}</b><br>Riesgo: ${infoSector.riesgo}% (${infoSector.alerta})`
+            );
 
             const bounds = L.latLngBounds([orig, bosqueCoords]);
             map.fitBounds(bounds, { padding: [35, 35] });
@@ -378,7 +378,6 @@ def vista_movil():
                 navigator.geolocation.getCurrentPosition(
                     procesarCoordenadas,
                     (err) => {
-                        // Fallback rápido por triangulación de antena/red
                         navigator.geolocation.getCurrentPosition(
                             procesarCoordenadas,
                             (err2) => {
