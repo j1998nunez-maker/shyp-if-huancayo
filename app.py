@@ -4,7 +4,7 @@ from flask import Flask, jsonify, request
 
 app = Flask(__name__)
 
-# Base de datos operacional de Cuarteles CGBVP y Zonas Forestales de Cobertura
+# Configuración táctica de Cuarteles CGBVP y Zonas Forestales
 REGIONES_CONFIG = {
     "Huancayo (Junín)": {
         "base_nombre": "Cía. Bomberos Huancayo B-30 (Jr. Áncash 603)",
@@ -53,7 +53,7 @@ REGIONES_CONFIG = {
     }
 }
 
-# Almacenamiento volátil de última posición satelital reportada
+# Almacenamiento volátil de la posición del usuario
 ULTIMO_GPS_USUARIO = {
     "lat": None,
     "lon": None,
@@ -93,19 +93,22 @@ def obtener_riesgo():
     lat = reg["bosque_lat"]
     lon = reg["bosque_lon"]
 
-    # Consulta meteorológica en tiempo real a Open-Meteo
+    # Consulta meteorológica dinámica con User-Agent verificado
     url_meteo = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current=temperature_2m,relative_humidity_2m,wind_speed_10m&timezone=auto"
     
+    t, hr, w = 18.0, 48.0, 12.0
     try:
-        r = requests.get(url_meteo, timeout=6)
-        clima = r.json().get('current', {})
-        t = clima.get('temperature_2m', 20.0)
-        hr = clima.get('relative_humidity_2m', 45.0)
-        w = clima.get('wind_speed_10m', 15.0)
+        headers = {'User-Agent': 'SHYp-IF-App-Tactica/2.0'}
+        r = requests.get(url_meteo, headers=headers, timeout=6)
+        if r.status_code == 200:
+            clima = r.json().get('current', {})
+            t = float(clima.get('temperature_2m', 18.0))
+            hr = float(clima.get('relative_humidity_2m', 48.0))
+            w = float(clima.get('wind_speed_10m', 12.0))
     except Exception:
-        t, hr, w = 22.0, 40.0, 18.0
+        pass
 
-    # Algoritmo ICIA (Índice de Combustibilidad e Ignición Ambiental)
+    # Cálculo del Índice ICIA
     peso_temp = (t / 35.0) * 35.0
     peso_hum = ((100.0 - hr) / 100.0) * 40.0
     peso_viento = (w / 50.0) * 25.0
@@ -121,12 +124,14 @@ def obtener_riesgo():
     return jsonify({
         "region": region_nombre,
         "sector": reg["bosque_nombre"],
-        "temperatura_c": t,
-        "humedad_relativa_pct": hr,
-        "velocidad_viento_kmh": w,
+        "temperatura_c": round(t, 1),
+        "humedad_relativa_pct": round(hr, 1),
+        "velocidad_viento_kmh": round(w, 1),
         "indice_riesgo_icia": icia,
         "nivel_alerta": alerta,
-        "base_oficial": reg["base_nombre"]
+        "base_oficial": reg["base_nombre"],
+        "base_coords": [reg["base_lat"], reg["base_lon"]],
+        "bosque_coords": [reg["bosque_lat"], reg["bosque_lon"]]
     })
 
 @app.route('/api/ruta_optima', methods=['GET'])
@@ -138,7 +143,7 @@ def calcular_ruta():
     if usar_gps and ULTIMO_GPS_USUARIO["lat"] is not None:
         origen_lat = ULTIMO_GPS_USUARIO["lat"]
         origen_lon = ULTIMO_GPS_USUARIO["lon"]
-        origen_tipo = "GPS Usuario en Terreno"
+        origen_tipo = "GPS de Brigadista"
     else:
         origen_lat = reg["base_lat"]
         origen_lon = reg["base_lon"]
@@ -147,7 +152,7 @@ def calcular_ruta():
     dest_lat = reg["bosque_lat"]
     dest_lon = reg["bosque_lon"]
 
-    # Consulta OSRM vial por carretera
+    # Consulta OSRM vial táctica
     url_osrm = f"https://router.project-osrm.org/route/v1/driving/{origen_lon},{origen_lat};{dest_lon},{dest_lat}?overview=full&geometries=geojson"
     try:
         resp = requests.get(url_osrm, timeout=8)
@@ -171,7 +176,7 @@ def calcular_ruta():
     return jsonify({"status": "error", "mensaje": "No se pudo calcular la ruta vial"}), 500
 
 # ==========================================
-# VISTA MÓVIL DIRECTA PARA LA APP INDEPENDIENTE
+# VISTA MÓVIL TÁCTICA AUTÓNOMA (CON MAPA LEAFLET)
 # ==========================================
 @app.route('/movil')
 def vista_movil():
@@ -181,37 +186,37 @@ def vista_movil():
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>SHYp-IF Táctico</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
-        body { background-color: #0b132b; color: #ffffff; padding: 16px; display: flex; flex-direction: column; min-height: 100vh; }
-        .header { text-align: center; margin-bottom: 18px; }
-        .header h1 { font-size: 22px; color: #ff5722; font-weight: 800; letter-spacing: 0.5px; }
-        .header p { font-size: 13px; color: #94a3b8; margin-top: 4px; }
-        .card { background-color: #1c2541; border-radius: 12px; padding: 14px; margin-bottom: 14px; border: 1px solid #3a506b; }
-        label { font-size: 11px; text-transform: uppercase; color: #94a3b8; font-weight: bold; margin-bottom: 6px; display: block; }
-        select { width: 100%; padding: 12px; border-radius: 8px; background: #0b132b; color: white; border: 1px solid #48cae4; font-size: 15px; font-weight: bold; }
-        .risk-box { text-align: center; padding: 18px; border-radius: 12px; margin-bottom: 14px; border: 2px solid #48cae4; background: #1c2541; }
-        .risk-val { font-size: 46px; font-weight: 900; color: #00f5d4; }
-        .risk-status { font-size: 15px; font-weight: bold; color: #00f5d4; margin-top: 4px; letter-spacing: 0.5px; }
-        .metrics { display: flex; justify-content: space-between; margin-bottom: 14px; }
-        .metric-item { background: #1c2541; padding: 12px 6px; border-radius: 8px; text-align: center; width: 31%; border: 1px solid #3a506b; }
-        .metric-item span { font-size: 10px; color: #94a3b8; display: block; margin-bottom: 4px; }
-        .metric-item strong { font-size: 16px; color: #48cae4; }
-        .btn { width: 100%; padding: 15px; border: none; border-radius: 10px; font-size: 15px; font-weight: bold; cursor: pointer; margin-bottom: 10px; display: flex; align-items: center; justify-content: center; gap: 8px; text-decoration: none; }
+        body { background-color: #0b132b; color: #ffffff; padding: 12px; display: flex; flex-direction: column; min-height: 100vh; }
+        .header { text-align: center; margin-bottom: 12px; }
+        .header h1 { font-size: 20px; color: #ff5722; font-weight: 800; }
+        .header p { font-size: 11px; color: #94a3b8; }
+        .card { background-color: #1c2541; border-radius: 10px; padding: 10px; margin-bottom: 10px; border: 1px solid #3a506b; }
+        select { width: 100%; padding: 10px; border-radius: 8px; background: #0b132b; color: white; border: 1px solid #48cae4; font-size: 14px; font-weight: bold; }
+        .risk-box { text-align: center; padding: 12px; border-radius: 10px; margin-bottom: 10px; border: 2px solid #48cae4; background: #1c2541; }
+        .risk-val { font-size: 42px; font-weight: 900; color: #00f5d4; }
+        .risk-status { font-size: 13px; font-weight: bold; color: #00f5d4; margin-top: 2px; }
+        .metrics { display: flex; justify-content: space-between; margin-bottom: 10px; }
+        .metric-item { background: #1c2541; padding: 8px 4px; border-radius: 8px; text-align: center; width: 31%; border: 1px solid #3a506b; }
+        .metric-item span { font-size: 9px; color: #94a3b8; display: block; margin-bottom: 2px; }
+        .metric-item strong { font-size: 15px; color: #48cae4; }
+        #map { width: 100%; height: 260px; border-radius: 10px; margin-bottom: 10px; border: 1px solid #3a506b; z-index: 1; }
+        .btn { width: 100%; padding: 14px; border: none; border-radius: 8px; font-size: 14px; font-weight: bold; cursor: pointer; margin-bottom: 8px; display: flex; align-items: center; justify-content: center; gap: 6px; }
         .btn-gps { background-color: #10b981; color: white; }
         .btn-nav { background-color: #0284c7; color: white; }
-        .gps-status { font-size: 12px; text-align: center; color: #a7f3d0; margin-top: -4px; margin-bottom: 12px; }
+        .gps-status { font-size: 11px; text-align: center; color: #a7f3d0; margin-top: -4px; margin-bottom: 8px; }
     </style>
 </head>
 <body>
     <div class="header">
         <h1>🔥 SHYp-IF Táctico</h1>
-        <p>Sistema Operativo de Despacho y Ruteo Forestal</p>
+        <p>Monitoreo Satelital y Ruteo Operativo</p>
     </div>
 
     <div class="card">
-        <label>Seleccionar Región Operativa:</label>
-        <select id="regionSelect" onchange="actualizarRegion()">
+        <select id="regionSelect" onchange="cambiarRegion()">
             <option value="Huancayo (Junín)">Huancayo (Bosque Acopalca)</option>
             <option value="Cusco">Cusco (Alto Tambomachay)</option>
             <option value="Puno">Puno (Pajonales Yanamayo)</option>
@@ -221,14 +226,14 @@ def vista_movil():
     </div>
 
     <div class="risk-box" id="riskBox">
-        <div style="font-size: 13px; color: #94a3b8; font-weight: 600;" id="sectorName">Bosque Acopalca - Quebrada Shullcas</div>
+        <div style="font-size: 12px; color: #94a3b8; font-weight: 600;" id="sectorName">Sector Forestal</div>
         <div class="risk-val" id="riskVal">--%</div>
-        <div class="risk-status" id="riskStatus">Consultando...</div>
+        <div class="risk-status" id="riskStatus">Consultando Satélite...</div>
     </div>
 
     <div class="metrics">
         <div class="metric-item">
-            <span>TEMPERATURA</span>
+            <span>TEMP.</span>
             <strong id="tempVal">-- °C</strong>
         </div>
         <div class="metric-item">
@@ -241,27 +246,34 @@ def vista_movil():
         </div>
     </div>
 
+    <!-- MAPA TÁCTICO DIRECTO -->
+    <div id="map"></div>
+
     <button class="btn btn-gps" onclick="obtenerGPS()">🎯 Fijar Mi Posición Satelital GPS</button>
     <div class="gps-status" id="gpsStatus">GPS: No fijado (Origen: Cuartel Oficial CGBVP)</div>
 
-    <button class="btn btn-nav" onclick="abrirNavegacion()">🧭 Iniciar Navegación por Carretera / Trocha</button>
+    <button class="btn btn-nav" onclick="trazarRutaVial()">🧭 Trazar Ruta Óptima en Mapa</button>
 
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script>
-        let posActual = null;
-        const regionesData = {
-            "Huancayo (Junín)": { destLat: -11.9960, destLon: -75.1380, sector: "Bosque Acopalca - Quebrada Shullcas", base: "Compañia+de+Bomberos+Huancayo+30,+Jiron+Ancash+603,+Huancayo" },
-            "Cusco": { destLat: -13.4750, destLon: -71.9680, sector: "Alto Tambomachay", base: "Compañia+de+Bomberos+Cusco+39,+Avenida+Garcilaso+313,+Cusco" },
-            "Puno": { destLat: -15.8120, destLon: -70.0450, sector: "Pajonales Cerros Yanamayo", base: "Compañia+de+Bomberos+Puno+42,+Avenida+El+Sol+829,+Puno" },
-            "Abancay (Apurímac)": { destLat: -13.5950, destLon: -72.8780, sector: "Santuario Nal. Ampay - Bosque Intimpa", base: "Compañia+de+Bomberos+Abancay+68,+Avenida+Seoane,+Abancay" },
-            "Huaraz (Áncash)": { destLat: -9.4780, destLon: -77.4950, sector: "Pajonales Quebrada Llaca - Huascarán", base: "Compañia+de+Bomberos+Huaraz+84,+Huaraz" }
-        };
+        let map = L.map('map').setView([-12.06915, -75.20985], 11);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap'
+        }).addTo(map);
 
-        async function actualizarRegion() {
+        let markerOrigen = null;
+        let markerDestino = null;
+        let rutaLayer = null;
+        let posActual = null;
+        let baseCoords = [-12.06915, -75.20985];
+        let bosqueCoords = [-11.9960, -75.1380];
+
+        async function cambiarRegion() {
             const reg = document.getElementById('regionSelect').value;
-            document.getElementById('sectorName').innerText = regionesData[reg].sector;
             try {
                 const res = await fetch('/api/riesgo?region=' + encodeURIComponent(reg));
                 const data = await res.json();
+                document.getElementById('sectorName').innerText = data.sector;
                 document.getElementById('riskVal').innerText = data.indice_riesgo_icia + '%';
                 document.getElementById('riskStatus').innerText = data.nivel_alerta;
                 document.getElementById('tempVal').innerText = data.temperatura_c + ' °C';
@@ -272,40 +284,73 @@ def vista_movil():
                 document.getElementById('riskVal').style.color = color;
                 document.getElementById('riskStatus').style.color = color;
                 document.getElementById('riskBox').style.borderColor = color;
+
+                baseCoords = data.base_coords;
+                bosqueCoords = data.bosque_coords;
+
+                actualizarMarcadoresEnMapa();
             } catch(e) {}
         }
 
+        function actualizarMarcadoresEnMapa() {
+            if (markerOrigen) map.removeLayer(markerOrigen);
+            if (markerDestino) map.removeLayer(markerDestino);
+            if (rutaLayer) map.removeLayer(rutaLayer);
+
+            const orig = posActual ? [posActual.lat, posActual.lon] : baseCoords;
+            const origLabel = posActual ? "📍 Mi Posición GPS" : "🚒 Cuartel Oficial CGBVP";
+
+            markerOrigen = L.marker(orig).addTo(map).bindPopup(origLabel).openPopup();
+            markerDestino = L.marker(bosqueCoords).addTo(map).bindPopup("🔥 Zona Forestal Objetivo");
+
+            const bounds = L.latLngBounds([orig, bosqueCoords]);
+            map.fitBounds(bounds, { padding: [25, 25] });
+        }
+
         function obtenerGPS() {
-            if (navigator.geolocation) {
+            if ("geolocation" in navigator) {
+                document.getElementById('gpsStatus').innerText = "Triangulando satélites GPS...";
                 navigator.geolocation.getCurrentPosition(
                     (pos) => {
                         posActual = { lat: pos.coords.latitude, lon: pos.coords.longitude };
-                        document.getElementById('gpsStatus').innerText = `GPS Activo: ${pos.coords.latitude.toFixed(4)}, ${pos.coords.longitude.toFixed(4)} (±${Math.round(pos.coords.accuracy)}m)`;
+                        const prec = Math.round(pos.coords.accuracy);
+                        document.getElementById('gpsStatus').innerText = `GPS Activo: (±${prec}m de precisión)`;
+                        
                         fetch('/api/guardar_gps', {
                             method: 'POST',
                             headers: {'Content-Type': 'application/json'},
-                            body: JSON.stringify({lat: pos.coords.latitude, lon: pos.coords.longitude, accuracy: pos.coords.accuracy})
+                            body: JSON.stringify({lat: posActual.lat, lon: posActual.lon, accuracy: prec})
                         });
+
+                        actualizarMarcadoresEnMapa();
                     },
-                    (err) => { alert('Por favor activa los permisos de ubicación GPS en tu celular.'); },
-                    { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+                    (err) => {
+                        alert('Activa la ubicación / GPS en tu teléfono.');
+                        document.getElementById('gpsStatus').innerText = "GPS no disponible. Usando Cuartel Oficial.";
+                    },
+                    { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 }
                 );
             }
         }
 
-        function abrirNavegacion() {
+        async function trazarRutaVial() {
             const reg = document.getElementById('regionSelect').value;
-            const data = regionesData[reg];
-            let url = '';
-            if (posActual) {
-                url = `https://www.google.com/maps/dir/${posActual.lat},${posActual.lon}/${data.destLat},${data.destLon}`;
-            } else {
-                url = `https://www.google.com/maps/dir/${data.base}/${data.destLat},${data.destLon}`;
+            const usarGps = posActual !== null;
+            try {
+                const res = await fetch(`/api/ruta_optima?region=${encodeURIComponent(reg)}&usar_gps=${usarGps}`);
+                const data = await res.json();
+                if (data.status === "success" && data.coordenadas) {
+                    if (rutaLayer) map.removeLayer(rutaLayer);
+                    const latlngs = data.coordenadas.map(c => [c[1], c[0]]);
+                    rutaLayer = L.polyline(latlngs, { color: '#00f5d4', weight: 5 }).addTo(map);
+                    map.fitBounds(rutaLayer.getBounds(), { padding: [25, 25] });
+                }
+            } catch(e) {
+                alert('No se pudo calcular la ruta vial en este momento.');
             }
-            window.open(url, '_system');
         }
 
-        actualizarRegion();
+        cambiarRegion();
     </script>
 </body>
 </html>"""
