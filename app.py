@@ -6,7 +6,19 @@ import datetime
 from flask import Flask, jsonify, request
 
 app = Flask(__name__)
-DB_PATH = "af_predictivo_entrenable.db"
+DB_PATH = "af_predictivo_cientifico.db"
+
+# FORZAR NO CACHÉ EN EL CELULAR
+@app.after_request
+def add_header(r):
+    r.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    r.headers["Pragma"] = "no-cache"
+    r.headers["Expires"] = "0"
+    return r
+
+def obtener_hora_peru():
+    # Sincronización estricta con UTC-5 (Hora de Perú) para evitar el salto al día siguiente
+    return datetime.datetime.utcnow() - datetime.timedelta(hours=5)
 
 def init_db():
     conn = sqlite3.connect(DB_PATH)
@@ -18,13 +30,12 @@ def init_db():
             temp_c REAL, humedad_pct REAL, viento_kmh REAL, ffdi_registrado REAL
         )
     """)
-    # Semillas de incendios andinos reales para que la IA tenga un punto de partida
     c.execute("SELECT COUNT(*) FROM eventos_reales")
     if c.fetchone()[0] == 0:
         semillas = [
-            ("2026-10-13", -13.5240, -72.7350, 22.8, 23.0, 27.5, 21.4), # Curahuasi
-            ("2026-10-19", -13.5085, -71.8150, 19.5, 21.0, 32.0, 18.2), # Pachatusan
-            ("2026-09-25", -11.9960, -75.1380, 18.4, 26.0, 24.5, 14.5)  # Acopalca
+            ("2026-10-13", -13.5240, -72.7350, 22.8, 23.0, 27.5, 21.4),
+            ("2026-10-19", -13.5085, -71.8150, 19.5, 21.0, 32.0, 18.2),
+            ("2026-09-25", -11.9960, -75.1380, 18.4, 26.0, 24.5, 14.5)
         ]
         c.executemany("INSERT INTO eventos_reales (fecha, lat, lon, temp_c, humedad_pct, viento_kmh, ffdi_registrado) VALUES (?, ?, ?, ?, ?, ?, ?)", semillas)
         conn.commit()
@@ -32,22 +43,18 @@ def init_db():
 
 init_db()
 
-# Aprender el umbral crítico de peligro basado en los incendios reales registrados
 def obtener_umbral_ffdi_aprendido():
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute("SELECT AVG(ffdi_registrado), COUNT(*) FROM eventos_reales")
     row = c.fetchone()
     conn.close()
-    
     n_eventos = row[1] if row else 0
-    # Si hay eventos, promediamos el FFDI histórico para calibrar el peligro extremo andino
     umbral_extremo = float(row[0]) if n_eventos > 0 else 24.0
     return max(12.0, round(umbral_extremo, 1)), n_eventos
 
 def calcular_ffdi_base(t, hr, w):
     try:
-        # Ecuación McArthur FFDI
         return 2.0 * math.exp(-0.450 + 0.987 * math.log(10.0) - 0.0345 * hr + 0.0338 * t + 0.0234 * w)
     except:
         return 0.0
@@ -71,24 +78,18 @@ def predecir_y_evaluar():
     data = request.get_json()
     lat, lon = float(data["lat"]), float(data["lon"])
     
-    # 1. Extraer clima crítico de MAÑANA
     t, hr, w = pronostico_24h_peor_escenario(lat, lon)
-    
-    # 2. Calcular Índice Base FFDI
     ffdi_futuro = calcular_ffdi_base(t, hr, w)
-    
-    # 3. Comparar con el Cerebro Entrenado
     umbral_critico, total_eventos = obtener_umbral_ffdi_aprendido()
     
-    # Evaluar riesgo según lo que el sistema ha aprendido de tu zona
     if ffdi_futuro >= umbral_critico:
-        diag = f"🔥 ALERTA DE ANTICIPACIÓN: FFDI superará el umbral andino entrenado ({umbral_critico}). Riesgo extremo de descontrol mañana."
+        diag = f"🔥 ALERTA PREDICCIÓN: FFDI superará el umbral andino entrenado ({umbral_critico}). Riesgo extremo si hay ignición."
         color, icono, tipo = "#ef4444", "🔥", "Peligro Crítico (Predictivo)"
     elif ffdi_futuro >= (umbral_critico * 0.6):
-        diag = "⚠️ PELIGRO MODERADO: Condiciones propicias para que una quema agrícola se propague rápidamente."
+        diag = "⚠️ PELIGRO MODERADO: Condiciones propicias para rápida propagación de quemas."
         color, icono, tipo = "#f97316", "⚠️", "Vigilancia Preventiva"
     else:
-        diag = "🌲 SEGURO: La humedad pronosticada para mañana impedirá la propagación forestal."
+        diag = "🌲 SEGURO: La humedad pronosticada impedirá la propagación forestal."
         color, icono, tipo = "#10b981", "🌲", "Condición Estable"
 
     return jsonify({
@@ -103,7 +104,6 @@ def entrenar_con_incendio_real():
     data = request.get_json()
     lat, lon = float(data["lat"]), float(data["lon"])
     
-    # Extraemos el clima real actual en la coordenada donde está ocurriendo el fuego
     try:
         r = requests.get(f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current=temperature_2m,relative_humidity_2m,wind_speed_10m", timeout=4)
         c = r.json().get("current", {})
@@ -112,13 +112,12 @@ def entrenar_con_incendio_real():
         t, hr, w = 18.0, 30.0, 15.0
 
     ffdi_real = calcular_ffdi_base(t, hr, w)
-    fecha_hoy = datetime.date.today().strftime("%Y-%m-%d")
+    fecha_peru = obtener_hora_peru().strftime("%Y-%m-%d")
 
-    # Guardamos en la base de datos para recalibrar el umbral
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute("INSERT INTO eventos_reales (fecha, lat, lon, temp_c, humedad_pct, viento_kmh, ffdi_registrado) VALUES (?, ?, ?, ?, ?, ?, ?)", 
-              (fecha_hoy, lat, lon, t, hr, w, ffdi_real))
+              (fecha_peru, lat, lon, t, hr, w, ffdi_real))
     conn.commit()
     conn.close()
 
@@ -128,38 +127,43 @@ def entrenar_con_incendio_real():
 @app.route('/')
 @app.route('/movil')
 def vista_movil():
+    fecha_peru = obtener_hora_peru().strftime("%Y-%m-%d")
     return f"""<!DOCTYPE html>
 <html lang="es">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <meta name="theme-color" content="#0b132b">
-    <title>ArcForest Sentinel | Predicción y Aprendizaje</title>
+    <title>ArcForest Sentinel | Predicción Científica v6.0</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
         * {{ box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }}
         body {{ background-color: #0b132b; color: #ffffff; padding: 10px; display: flex; flex-direction: column; height: 100vh; overflow-y: hidden; }}
         .header {{ text-align: center; margin-bottom: 6px; }}
         .header h1 {{ font-size: 16px; color: #ff5722; font-weight: 800; margin-bottom: 2px; }}
+        .header p {{ font-size: 10px; color: #94a3b8; font-weight: bold; }}
         .ia-bar {{ background: #1e293b; border: 1px solid #38bdf8; border-radius: 6px; padding: 6px; margin-bottom: 6px; font-size: 10px; display: flex; justify-content: space-between; }}
         .ia-bar b {{ color: #00f5d4; }}
         .risk-box {{ text-align: center; padding: 8px; border-radius: 8px; margin-bottom: 6px; border: 2px solid #48cae4; background: #1c2541; }}
         .risk-val {{ font-size: 28px; font-weight: 900; color: #00f5d4; line-height: 1; margin: 4px 0; }}
-        .risk-diag {{ font-size: 10px; font-weight: bold; color: #f8fafc; }}
+        .risk-diag {{ font-size: 10px; font-weight: bold; color: #f8fafc; line-height: 1.2; }}
         .metrics {{ display: flex; justify-content: space-between; margin-bottom: 6px; }}
         .metric-item {{ background: #1c2541; padding: 5px; border-radius: 6px; text-align: center; width: 32%; border: 1px solid #3a506b; }}
         .metric-item span {{ font-size: 8px; color: #94a3b8; display: block; }}
         .metric-item strong {{ font-size: 12px; color: #48cae4; }}
         #map {{ width: 100%; flex-grow: 1; border-radius: 10px; margin-bottom: 8px; border: 1px solid #3a506b; z-index: 1; }}
-        .btn-group {{ display: flex; gap: 6px; }}
-        .btn {{ flex: 1; padding: 12px 6px; border: none; border-radius: 8px; font-size: 11px; font-weight: bold; cursor: pointer; text-align: center; color: white; }}
-        .btn-pred {{ background-color: #0284c7; }}
+        .btn-group {{ display: flex; gap: 6px; flex-direction: column; }}
+        .btn {{ padding: 12px; border: none; border-radius: 8px; font-size: 12px; font-weight: bold; cursor: pointer; text-align: center; color: white; }}
+        .btn-pred {{ background-color: #0284c7; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }}
         .btn-train {{ background-color: #d97706; }}
         .badge-marker {{ display: flex; align-items: center; justify-content: center; border-radius: 50%; font-size: 16px; box-shadow: 0 0 8px rgba(0,0,0,0.8); }}
     </style>
 </head>
 <body>
-    <div class="header"><h1>🛰️ ArcForest Sentinel | Predictivo</h1></div>
+    <div class="header">
+        <h1>🛰️ ArcForest Sentinel | Predictivo v6.0</h1>
+        <p>Fecha del Sistema (Perú): {fecha_peru}</p>
+    </div>
 
     <div class="ia-bar">
         <span>🧠 <b>Eventos Estudiados:</b> <span id="nEv">3</span></span>
@@ -173,21 +177,21 @@ def vista_movil():
     </div>
 
     <div class="risk-box" id="riskBox">
-        <div style="font-size: 10px; color: #cbd5e1; font-weight: 600;" id="lugarName">Toca un cerro para anticipar el riesgo a 24h</div>
+        <div style="font-size: 10px; color: #cbd5e1; font-weight: 600;" id="lugarName">Toca un cerro para anticipar el riesgo de MAÑANA</div>
         <div class="risk-val" id="riskVal">-- FFDI</div>
-        <div class="risk-diag" id="riskDiag">En espera de coordenadas...</div>
+        <div class="risk-diag" id="riskDiag">Mueve el mapa libremente y toca un punto...</div>
     </div>
 
     <div id="map"></div>
 
     <div class="btn-group">
-        <button class="btn btn-pred" onclick="predecirManana()">🔍 1. Predecir Riesgo 24h</button>
+        <button class="btn btn-pred" onclick="predecirManana()">🔍 1. Predecir Riesgo 24h (Pronóstico Científico)</button>
         <button class="btn btn-train" onclick="entrenarIA()">💾 2. Guardar Incendio Real Aquí (Entrenar IA)</button>
     </div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script>
-        let map = L.map('map', {{ zoomControl: false, tap: false }}).setView([-12.07, -75.20], 8);
+        let map = L.map('map', {{ zoomControl: false, tap: false }}).setView([-12.07, -75.20], 6);
         L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{{z}}/{{y}}/{{x}}', {{ maxZoom: 19 }}).addTo(map);
 
         let puntoActual = null;
@@ -204,12 +208,12 @@ def vista_movil():
             puntoActual = {{ lat: e.latlng.lat, lon: e.latlng.lng }};
             if(pinEvaluacion) map.removeLayer(pinEvaluacion);
             pinEvaluacion = L.marker([puntoActual.lat, puntoActual.lon], {{ icon: crearIcono('📍', '#2563eb') }}).addTo(map);
-            document.getElementById('riskDiag').innerText = "Punto marcado. Presiona 'Predecir Riesgo' o 'Entrenar IA'.";
+            document.getElementById('riskDiag').innerText = "Punto marcado. Presiona 'Predecir Riesgo' para analizar.";
         }});
 
         async function predecirManana() {{
             if(!puntoActual) return alert("Primero toca una zona en el mapa.");
-            document.getElementById('riskDiag').innerText = "Descargando proyecciones atmosféricas a 24h...";
+            document.getElementById('riskDiag').innerText = "Descargando pronóstico meteorológico a 24h...";
             try {{
                 const res = await fetch('/api/predecir_y_evaluar', {{
                     method: 'POST', headers: {{'Content-Type': 'application/json'}},
@@ -234,9 +238,9 @@ def vista_movil():
 
         async function entrenarIA() {{
             if(!puntoActual) return alert("Toca en el mapa el lugar exacto del incendio real.");
-            if(!confirm("¿Confirmas que hay un incendio forestal activo en este punto ahora mismo? Esto calibrará la sensibilidad de la IA.")) return;
+            if(!confirm("¿Confirmas que hay un incendio forestal activo en este punto ahora mismo?")) return;
             
-            document.getElementById('riskDiag').innerText = "Registrando evento en Base de Datos y recalibrando umbrales...";
+            document.getElementById('riskDiag').innerText = "Registrando en Base de Datos y recalibrando IA...";
             try {{
                 const res = await fetch('/api/entrenar_con_incendio_real', {{
                     method: 'POST', headers: {{'Content-Type': 'application/json'}},
@@ -245,7 +249,7 @@ def vista_movil():
                 const d = await res.json();
                 document.getElementById('nEv').innerText = d.total_eventos;
                 document.getElementById('umbIA').innerText = '> ' + d.nuevo_umbral + ' FFDI';
-                document.getElementById('riskDiag').innerText = "✅ Evento guardado. La IA ha aprendido un nuevo patrón andino de ignición.";
+                document.getElementById('riskDiag').innerText = "✅ Evento guardado. La IA aprendió el patrón atmosférico de este incendio.";
                 
                 if(pinEvaluacion) map.removeLayer(pinEvaluacion);
                 pinEvaluacion = L.marker([puntoActual.lat, puntoActual.lon], {{ icon: crearIcono('🔥', '#ef4444') }}).addTo(map);
@@ -259,5 +263,5 @@ if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
 '@ | Set-Content -Path ".\app.py" -Encoding UTF8
 git add app.py
-git commit -m "feat: Integracion final Anticipacion FFDI 24h + Entrenamiento de Base de Datos local"
+git commit -m "fix: solucion estricta de zona horaria UTC-5 y forzar borrado de cache PWA"
 git push origin main
