@@ -1,5 +1,4 @@
-﻿@'
-import sqlite3
+﻿import sqlite3
 import math
 import requests
 import datetime
@@ -17,7 +16,6 @@ def add_header(r):
     return r
 
 def obtener_hora_peru():
-    # Sincronización estricta con UTC-5 (Hora de Perú) para evitar el salto al día siguiente
     return datetime.datetime.utcnow() - datetime.timedelta(hours=5)
 
 def init_db():
@@ -65,10 +63,14 @@ def pronostico_24h_peor_escenario(lat, lon):
         r = requests.get(url, timeout=4)
         if r.status_code == 200:
             data = r.json().get("hourly", {})
-            temps, hums, winds = data.get("temperature_2m", [])[:24], data.get("relative_humidity_2m", [])[:24], data.get("wind_speed_10m", [])[:24]
-            t_max = max(temps)
-            idx = temps.index(t_max)
-            return float(t_max), float(hums[idx]), float(max(winds))
+            temps = data.get("temperature_2m", [])[:24]
+            hums = data.get("relative_humidity_2m", [])[:24]
+            winds = data.get("wind_speed_10m", [])[:24]
+            
+            if temps and hums and winds:
+                t_max = max(temps)
+                idx = temps.index(t_max)
+                return float(t_max), float(hums[idx]), float(max(winds))
     except:
         pass
     return 18.0, 30.0, 15.0
@@ -128,7 +130,8 @@ def entrenar_con_incendio_real():
 @app.route('/movil')
 def vista_movil():
     fecha_peru = obtener_hora_peru().strftime("%Y-%m-%d")
-    return f"""<!DOCTYPE html>
+    
+    html_content = """<!DOCTYPE html>
 <html lang="es">
 <head>
     <meta charset="UTF-8">
@@ -137,32 +140,32 @@ def vista_movil():
     <title>ArcForest Sentinel | Predicción Científica v6.0</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
-        * {{ box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }}
-        body {{ background-color: #0b132b; color: #ffffff; padding: 10px; display: flex; flex-direction: column; height: 100vh; overflow-y: hidden; }}
-        .header {{ text-align: center; margin-bottom: 6px; }}
-        .header h1 {{ font-size: 16px; color: #ff5722; font-weight: 800; margin-bottom: 2px; }}
-        .header p {{ font-size: 10px; color: #94a3b8; font-weight: bold; }}
-        .ia-bar {{ background: #1e293b; border: 1px solid #38bdf8; border-radius: 6px; padding: 6px; margin-bottom: 6px; font-size: 10px; display: flex; justify-content: space-between; }}
-        .ia-bar b {{ color: #00f5d4; }}
-        .risk-box {{ text-align: center; padding: 8px; border-radius: 8px; margin-bottom: 6px; border: 2px solid #48cae4; background: #1c2541; }}
-        .risk-val {{ font-size: 28px; font-weight: 900; color: #00f5d4; line-height: 1; margin: 4px 0; }}
-        .risk-diag {{ font-size: 10px; font-weight: bold; color: #f8fafc; line-height: 1.2; }}
-        .metrics {{ display: flex; justify-content: space-between; margin-bottom: 6px; }}
-        .metric-item {{ background: #1c2541; padding: 5px; border-radius: 6px; text-align: center; width: 32%; border: 1px solid #3a506b; }}
-        .metric-item span {{ font-size: 8px; color: #94a3b8; display: block; }}
-        .metric-item strong {{ font-size: 12px; color: #48cae4; }}
-        #map {{ width: 100%; flex-grow: 1; border-radius: 10px; margin-bottom: 8px; border: 1px solid #3a506b; z-index: 1; }}
-        .btn-group {{ display: flex; gap: 6px; flex-direction: column; }}
-        .btn {{ padding: 12px; border: none; border-radius: 8px; font-size: 12px; font-weight: bold; cursor: pointer; text-align: center; color: white; }}
-        .btn-pred {{ background-color: #0284c7; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }}
-        .btn-train {{ background-color: #d97706; }}
-        .badge-marker {{ display: flex; align-items: center; justify-content: center; border-radius: 50%; font-size: 16px; box-shadow: 0 0 8px rgba(0,0,0,0.8); }}
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+        body { background-color: #0b132b; color: #ffffff; padding: 10px; display: flex; flex-direction: column; height: 100vh; overflow-y: hidden; }
+        .header { text-align: center; margin-bottom: 6px; }
+        .header h1 { font-size: 16px; color: #ff5722; font-weight: 800; margin-bottom: 2px; }
+        .header p { font-size: 10px; color: #94a3b8; font-weight: bold; }
+        .ia-bar { background: #1e293b; border: 1px solid #38bdf8; border-radius: 6px; padding: 6px; margin-bottom: 6px; font-size: 10px; display: flex; justify-content: space-between; }
+        .ia-bar b { color: #00f5d4; }
+        .risk-box { text-align: center; padding: 8px; border-radius: 8px; margin-bottom: 6px; border: 2px solid #48cae4; background: #1c2541; }
+        .risk-val { font-size: 28px; font-weight: 900; color: #00f5d4; line-height: 1; margin: 4px 0; }
+        .risk-diag { font-size: 10px; font-weight: bold; color: #f8fafc; line-height: 1.2; }
+        .metrics { display: flex; justify-content: space-between; margin-bottom: 6px; }
+        .metric-item { background: #1c2541; padding: 5px; border-radius: 6px; text-align: center; width: 32%; border: 1px solid #3a506b; }
+        .metric-item span { font-size: 8px; color: #94a3b8; display: block; }
+        .metric-item strong { font-size: 12px; color: #48cae4; }
+        #map { width: 100%; flex-grow: 1; border-radius: 10px; margin-bottom: 8px; border: 1px solid #3a506b; z-index: 1; }
+        .btn-group { display: flex; gap: 6px; flex-direction: column; }
+        .btn { padding: 12px; border: none; border-radius: 8px; font-size: 12px; font-weight: bold; cursor: pointer; text-align: center; color: white; }
+        .btn-pred { background-color: #0284c7; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }
+        .btn-train { background-color: #d97706; }
+        .badge-marker { display: flex; align-items: center; justify-content: center; border-radius: 50%; font-size: 16px; box-shadow: 0 0 8px rgba(0,0,0,0.8); }
     </style>
 </head>
 <body>
     <div class="header">
         <h1>🛰️ ArcForest Sentinel | Predictivo v6.0</h1>
-        <p>Fecha del Sistema (Perú): {fecha_peru}</p>
+        <p>Fecha del Sistema (Perú): __FECHA_PERU__</p>
     </div>
 
     <div class="ia-bar">
@@ -191,34 +194,34 @@ def vista_movil():
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script>
-        let map = L.map('map', {{ zoomControl: false, tap: false }}).setView([-12.07, -75.20], 6);
-        L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{{z}}/{{y}}/{{x}}', {{ maxZoom: 19 }}).addTo(map);
+        let map = L.map('map', { zoomControl: false, tap: false }).setView([-12.07, -75.20], 6);
+        L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19 }).addTo(map);
 
         let puntoActual = null;
         let pinEvaluacion = null;
 
-        function crearIcono(emoji, color) {{
-            return L.divIcon({{
-                className: 'badge-marker', html: `<div style="background-color:${{color}}; width:34px; height:34px; border-radius:50%; display:flex; align-items:center; justify-content:center; border:2px solid #ffffff;">${{emoji}}</div>`,
+        function crearIcono(emoji, color) {
+            return L.divIcon({
+                className: 'badge-marker', html: `<div style="background-color:${color}; width:34px; height:34px; border-radius:50%; display:flex; align-items:center; justify-content:center; border:2px solid #ffffff;">${emoji}</div>`,
                 iconSize: [34, 34], iconAnchor: [17, 17]
-            }});
-        }}
+            });
+        }
 
-        map.on('click', function(e) {{
-            puntoActual = {{ lat: e.latlng.lat, lon: e.latlng.lng }};
+        map.on('click', function(e) {
+            puntoActual = { lat: e.latlng.lat, lon: e.latlng.lng };
             if(pinEvaluacion) map.removeLayer(pinEvaluacion);
-            pinEvaluacion = L.marker([puntoActual.lat, puntoActual.lon], {{ icon: crearIcono('📍', '#2563eb') }}).addTo(map);
+            pinEvaluacion = L.marker([puntoActual.lat, puntoActual.lon], { icon: crearIcono('📍', '#2563eb') }).addTo(map);
             document.getElementById('riskDiag').innerText = "Punto marcado. Presiona 'Predecir Riesgo' para analizar.";
-        }});
+        });
 
-        async function predecirManana() {{
+        async function predecirManana() {
             if(!puntoActual) return alert("Primero toca una zona en el mapa.");
             document.getElementById('riskDiag').innerText = "Descargando pronóstico meteorológico a 24h...";
-            try {{
-                const res = await fetch('/api/predecir_y_evaluar', {{
-                    method: 'POST', headers: {{'Content-Type': 'application/json'}},
-                    body: JSON.stringify({{ lat: puntoActual.lat, lon: puntoActual.lon }})
-                }});
+            try {
+                const res = await fetch('/api/predecir_y_evaluar', {
+                    method: 'POST', headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ lat: puntoActual.lat, lon: puntoActual.lon })
+                });
                 const d = await res.json();
                 
                 document.getElementById('nEv').innerText = d.eventos_bd;
@@ -232,36 +235,34 @@ def vista_movil():
                 document.getElementById('riskBox').style.borderColor = d.color;
 
                 if(pinEvaluacion) map.removeLayer(pinEvaluacion);
-                pinEvaluacion = L.marker([d.lat, d.lon], {{ icon: crearIcono(d.icono, d.color) }}).addTo(map).bindPopup(d.tipo_evento).openPopup();
-            }} catch(e) {{}}
-        }}
+                pinEvaluacion = L.marker([d.lat, d.lon], { icon: crearIcono(d.icono, d.color) }).addTo(map).bindPopup(d.tipo_evento).openPopup();
+            } catch(e) {}
+        }
 
-        async function entrenarIA() {{
+        async function entrenarIA() {
             if(!puntoActual) return alert("Toca en el mapa el lugar exacto del incendio real.");
             if(!confirm("¿Confirmas que hay un incendio forestal activo en este punto ahora mismo?")) return;
             
             document.getElementById('riskDiag').innerText = "Registrando en Base de Datos y recalibrando IA...";
-            try {{
-                const res = await fetch('/api/entrenar_con_incendio_real', {{
-                    method: 'POST', headers: {{'Content-Type': 'application/json'}},
-                    body: JSON.stringify({{ lat: puntoActual.lat, lon: puntoActual.lon }})
-                }});
+            try {
+                const res = await fetch('/api/entrenar_con_incendio_real', {
+                    method: 'POST', headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ lat: puntoActual.lat, lon: puntoActual.lon })
+                });
                 const d = await res.json();
                 document.getElementById('nEv').innerText = d.total_eventos;
                 document.getElementById('umbIA').innerText = '> ' + d.nuevo_umbral + ' FFDI';
                 document.getElementById('riskDiag').innerText = "✅ Evento guardado. La IA aprendió el patrón atmosférico de este incendio.";
                 
                 if(pinEvaluacion) map.removeLayer(pinEvaluacion);
-                pinEvaluacion = L.marker([puntoActual.lat, puntoActual.lon], {{ icon: crearIcono('🔥', '#ef4444') }}).addTo(map);
-            }} catch(e) {{}}
-        }}
+                pinEvaluacion = L.marker([puntoActual.lat, puntoActual.lon], { icon: crearIcono('🔥', '#ef4444') }).addTo(map);
+            } catch(e) {}
+        }
     </script>
 </body>
-</html>"""
+</html>
+"""
+    return html_content.replace("__FECHA_PERU__", fecha_peru)
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
-'@ | Set-Content -Path ".\app.py" -Encoding UTF8
-git add app.py
-git commit -m "fix: solucion estricta de zona horaria UTC-5 y forzar borrado de cache PWA"
-git push origin main
